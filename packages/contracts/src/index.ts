@@ -49,3 +49,5 @@ export interface BootstrapResponse {
 export { isRole, isSyncChange } from './guards.js';
 export { canAccessWork } from './auth.js';
 export type { AuthenticatedPrincipal, AuthorizationContext } from './auth.js';
+export { DEFAULT_SYNC_POLICIES } from './sync-policy.js';
+export type { ConflictStrategy, SyncPolicy } from './sync-policy.js';
