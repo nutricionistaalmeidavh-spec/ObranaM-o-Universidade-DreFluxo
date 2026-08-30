@@ -46,13 +46,13 @@
   },
   "dependencies": {
     "better-sqlite3": "^13.0.2",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.28.0",
     "pdf-lib": "^1.17.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
     "recharts": "^3.10.1",
-    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

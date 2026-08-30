@@ -1,9 +1,9 @@
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const XLSX = require('xlsx')
 const { dialog } = require('electron')
 const { assertSpreadsheetInput } = require('./spreadsheet-guard.cjs')
+const { readWorkbook, sheetRows, encodeCell } = require('./spreadsheet-reader.cjs')
 
 const MONTHS = {
   janeiro: '01', fevereiro: '02', marco: '03', 'março': '03', abril: '04', maio: '05', junho: '06',
@@ -21,7 +21,7 @@ function cents(value) {
 }
 
 function cellName(row, col) {
-  return XLSX.utils.encode_cell({ r: row, c: col })
+  return encodeCell({ r: row, c: col })
 }
 
 function sha256(filePath) {
@@ -55,13 +55,15 @@ class WorkImportService {
     return this.importFiles(result.filePaths)
   }
 
-  importFiles(filePaths) {
+  async importFiles(filePaths) {
     const proposal = filePaths.find((file) => /or[cç]amento|proposta/i.test(path.basename(file))) || filePaths.find((file) => /\.xls$/i.test(file))
     const maps = filePaths.filter((file) => file !== proposal)
     if (!proposal && !maps.length) throw new Error('Selecione ao menos uma proposta ou mapa de medição.')
+    const parsedProposal = proposal ? await this.parseProposal(proposal) : null
+    const parsedMaps = []
+    for (const file of maps) parsedMaps.push({ file, parsed: await this.parseMap(file) })
+    const firstMap = parsedMaps[0]?.parsed || null
     return this.db.db.transaction(() => {
-      const parsedProposal = proposal ? this.parseProposal(proposal) : null
-      const firstMap = maps[0] ? this.parseMap(maps[0]) : null
       const company = this.ensureCompany()
       const client = this.ensureClient(parsedProposal?.clientName || 'OTICON')
       const work = this.ensureWork({
@@ -73,16 +75,17 @@ class WorkImportService {
       })
       const budget = parsedProposal ? this.importBudgetFromProposal(work.id, parsedProposal, proposal) : { created: 0 }
       let measurements = []
-      for (const file of maps) measurements.push(this.importMap(work, this.parseMap(file), file))
+      for (const item of parsedMaps) measurements.push(this.importMap(work, item.parsed, item.file))
       return { obra: work, orcamento: budget, medicoes: measurements, arquivos: filePaths.map((file) => ({ file, hash: sha256(file) })) }
     })()
   }
 
-  parseProposal(filePath) {
+  async parseProposal(filePath) {
     assertSpreadsheetInput(filePath)
-    const workbook = XLSX.readFile(filePath, { raw: true, cellDates: false })
-    const sheetName = workbook.SheetNames[0]
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', raw: true })
+    const workbook = await readWorkbook(filePath)
+    const sheet = workbook.worksheets[0]
+    const sheetName = sheet.name
+    const rows = sheetRows(sheet)
     const title = rows.flat().map(text).find((value) => /residencial|chianti/i.test(value)) || 'Residencial Chianti'
     const service = rows.flat().map(text).find((value) => /^servi[cç]o:/i.test(value)) || 'Mão de obra de instalações hidráulicas'
     const total = rows.flat().filter((value) => typeof value === 'number').sort((a, b) => b - a)[0] || 0
@@ -96,12 +99,11 @@ class WorkImportService {
     return { sheetName, clientName: title.replace(/^.*propr\.?:/i, '').replace(/residencial chianti/i, '').replace(/[-:]/g, '').trim() || 'OTICON', workName: /chianti/i.test(title) ? 'Residencial Chianti' : title, service, contracted: cents(total), items }
   }
 
-  parseMap(filePath) {
+  async parseMap(filePath) {
     assertSpreadsheetInput(filePath)
-    const workbook = XLSX.readFile(filePath, { raw: true, cellDates: false })
-    const sheetName = workbook.SheetNames[0]
-    const sheet = workbook.Sheets[sheetName]
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true })
+    const workbook = await readWorkbook(filePath)
+    const sheet = workbook.worksheets[0]
+    const rows = sheetRows(sheet)
     const contracted = cents(rows[40]?.[15] || rows[39]?.[15] || 0)
     const services = []
     for (let c = 1; c <= 14; c++) {

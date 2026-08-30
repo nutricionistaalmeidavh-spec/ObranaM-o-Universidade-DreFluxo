@@ -1,9 +1,9 @@
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
-const XLSX = require('xlsx')
 const { dialog } = require('electron')
 const { assertSpreadsheetInput } = require('./spreadsheet-guard.cjs')
+const { readWorkbook, sheetRows, rowsAsObjects, parseExcelDate } = require('./spreadsheet-reader.cjs')
 
 const AREAS = {
   financeiro: { label: 'Financeiro', fields: ['descricao','valor','tipo','competencia','vencimento','categoria','obra','fornecedor','cliente'] },
@@ -77,7 +77,7 @@ function money(value) {
 function date(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10)
   if (typeof value === 'number') {
-    const parsed = XLSX.SSF.parse_date_code(value)
+    const parsed = parseExcelDate(value)
     if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`
   }
   const text = String(value ?? '').trim()
@@ -124,12 +124,12 @@ class UniversalImportService {
     return this.analyze(picked.filePaths[0])
   }
 
-  analyze(filePath) {
+  async analyze(filePath) {
     assertSpreadsheetInput(filePath)
-    const workbook = XLSX.readFile(filePath, { cellDates: true })
+    const workbook = await readWorkbook(filePath)
     const token = crypto.randomUUID()
     const sheets = workbook.SheetNames.map((name) => {
-      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: '', raw: true })
+      const rows = sheetRows(workbook.getWorksheet(name))
       const headerIndex = rows.slice(0, 20).reduce((best, row, index) => {
         const score = Object.values(detect(row)).reduce((sum, item) => sum + item, 0)
         return score > best.score ? { index, score } : best
@@ -144,25 +144,25 @@ class UniversalImportService {
     return { token, file: path.basename(filePath), hash, sheets: sheets.map(({ name, headers, headerIndex, rows, scores, area }) => ({ name, headers, headerIndex, rows, scores, area })) }
   }
 
-  preview(token, options) {
+  async preview(token, options) {
     const pending = this.pending.get(token)
     if (!pending) throw new Error('A selecao expirou. Escolha o arquivo novamente.')
     const sheet = pending.sheets.find((item) => item.name === options.sheet)
     if (!sheet) throw new Error('Aba nao encontrada.')
     const area = AREAS[options.area] ? options.area : sheet.area
     const map = { ...mapping(sheet.headers, area), ...(options.mapping || {}) }
-    const rows = XLSX.utils.sheet_to_json(pending.workbook.Sheets[sheet.name], { range: sheet.headerIndex, defval: '', raw: true }).slice(0, 200)
+    const rows = rowsAsObjects(sheetRows(pending.workbook.getWorksheet(sheet.name)), sheet.headerIndex).slice(0, 200)
     const valid = rows.filter((row) => Object.values(row).some(Boolean))
     return { area, label: AREAS[area].label, headers: sheet.headers, mapping: map, rows: valid.slice(0, 12), total: valid.length, missing: required(area).filter((field) => !map[field]), createMissing: ['categoria','obra','frente','fornecedor','cliente','cargo','funcionario','contrato'].filter((field) => map[field]) }
   }
 
-  commit(token, options) {
+  async commit(token, options) {
     const pending = this.pending.get(token)
     if (!pending) throw new Error('A selecao expirou. Escolha o arquivo novamente.')
-    const preview = this.preview(token, options)
+    const preview = await this.preview(token, options)
     if (preview.missing.length) throw new Error(`Mapeie os campos obrigatorios: ${preview.missing.join(', ')}.`)
     const sheet = pending.sheets.find((item) => item.name === options.sheet)
-    const rows = XLSX.utils.sheet_to_json(pending.workbook.Sheets[sheet.name], { range: sheet.headerIndex, defval: '', raw: true })
+    const rows = rowsAsObjects(sheetRows(pending.workbook.getWorksheet(sheet.name)), sheet.headerIndex)
     const area = preview.area
     const map = preview.mapping
     return this.db.db.transaction(() => {

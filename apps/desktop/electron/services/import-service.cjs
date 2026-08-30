@@ -1,9 +1,9 @@
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const path = require('node:path')
-const XLSX = require('xlsx')
 const { dialog } = require('electron')
 const { assertSpreadsheetInput } = require('./spreadsheet-guard.cjs')
+const { readWorkbook, sheetRows, encodeCell } = require('./spreadsheet-reader.cjs')
 
 const MONTHS = { JANEIRO:1, FEVEREIRO:2, MARÇO:3, MARCO:3, ABRIL:4, MAIO:5, JUNHO:6, JULHO:7, AGOSTO:8, SETEMBRO:9, OUTUBRO:10, NOVEMBRO:11, DEZEMBRO:12 }
 const EXPENSE_SKIP = /^(total|2º quinzena|extras$|receita$|caixa$|despesas$)/i
@@ -42,13 +42,12 @@ function mode(values) {
   return [...counts.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0] || 0
 }
 
-function parseSheet2026(filePath) {
+async function parseSheet2026(filePath) {
   assertSpreadsheetInput(filePath)
-  const workbook = XLSX.readFile(filePath, { cellDates: false, raw: true })
-  if (!workbook.Sheets['2026']) throw new Error('A planilha não possui a aba 2026.')
-  const sheet = workbook.Sheets['2026']
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1')
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true })
+  const workbook = await readWorkbook(filePath)
+  const sheet = workbook.getWorksheet('2026')
+  if (!sheet) throw new Error('A planilha não possui a aba 2026.')
+  const rows = sheetRows(sheet)
   const headers = rows[0] || []
   const starts = []
   headers.forEach((value, col) => {
@@ -57,7 +56,7 @@ function parseSheet2026(filePath) {
   })
   if (!starts.length) throw new Error('Nenhum bloco mensal de 2026 foi encontrado.')
   const months = starts.map((start, index) => {
-    const end = index + 1 < starts.length ? starts[index + 1].col - 2 : range.e.c
+    const end = index + 1 < starts.length ? starts[index + 1].col - 2 : sheet.columnCount - 1
     const labels = headers.slice(start.col, end + 1).map((v) => String(v || '').trim())
     const employeeRows = []
     for (let r = 3; r <= 20; r++) {
@@ -94,7 +93,7 @@ function parseSheet2026(filePath) {
   for (const month of months) for (const employee of month.employees) {
     if (collisions.has(employee.name) && employee.roleHint) employee.name += ' (' + employee.roleHint.replace(' de Encanador','') + ')'
   }
-  return { sheet: '2026', months, employeeNames: [...new Set(months.flatMap((m) => m.employees.map((e) => e.name)))].sort(), range: sheet['!ref'] }
+  return { sheet: '2026', months, employeeNames: [...new Set(months.flatMap((m) => m.employees.map((e) => e.name)))].sort(), range: sheet.dimensions }
 }
 
 class ImportService {
@@ -104,8 +103,8 @@ class ImportService {
     if (picked.canceled) return null
     return this.preview(picked.filePaths[0])
   }
-  preview(filePath) {
-    const parsed = parseSheet2026(filePath)
+  async preview(filePath) {
+    const parsed = await parseSheet2026(filePath)
     const hash = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
     const token = crypto.randomUUID()
     this.pending.set(token, { filePath, hash, parsed })
@@ -189,7 +188,7 @@ class ImportService {
           const payable = emp.components.find((c) => /a pagar/i.test(c.label))
           for (const component of emp.components) {
             const nature = /desc|falta|vale/i.test(component.label) ? 'desconto' : 'credito'
-            const cell = XLSX.utils.encode_cell({ r: emp.row - 1, c: component.col })
+            const cell = encodeCell({ r: emp.row - 1, c: component.col })
             const raw = rawInsert.run(importRow.id, month.competencia, cell, 'folha', emp.name, cents(component.value), JSON.stringify(component), 'funcionarios', employee.id, 'importado')
             this.db.save('folha_lancamentos', { folha_id: folha.id, funcionario_id: employee.id, tipo: component.label.toLowerCase().replace(/[^a-z0-9]+/gi,'_'), descricao: component.label, natureza: nature, valor_centavos: Math.abs(cents(component.value)), importacao_linha_id: Number(raw.lastInsertRowid) })
             imported++
@@ -202,11 +201,11 @@ class ImportService {
         for (const expense of month.expenses) {
           const category = /fgts|inss|darf|seconci|pis|cofins/i.test(expense.name) ? categories['Encargos trabalhistas'] : /ferrament/i.test(expense.name) ? categories['Ferramentas'] : /combust/i.test(expense.name) ? categories['Combustível'] : /seguro/i.test(expense.name) ? categories['Seguros'] : /tarifa/i.test(expense.name) ? categories['Tarifas bancárias'] : categories['Outras despesas']
           const account = this.db.save('contas', { tipo: 'pagar', empresa_id: company.id, categoria_id: category, descricao: expense.name, competencia: month.competencia, vencimento: `${month.competencia}-20`, valor_bruto_centavos: cents(expense.value), valor_centavos: cents(expense.value), status: 'pendente', origem_tipo: 'importacao_2026', origem_id: importRow.id })
-          rawInsert.run(importRow.id, month.competencia, XLSX.utils.encode_cell({ r: expense.row - 1, c: month.startCol + 1 }), 'despesa', expense.name, cents(expense.value), JSON.stringify(expense), 'contas', account.id, 'importado'); imported++
+            rawInsert.run(importRow.id, month.competencia, encodeCell({ r: expense.row - 1, c: month.startCol + 1 }), 'despesa', expense.name, cents(expense.value), JSON.stringify(expense), 'contas', account.id, 'importado'); imported++
         }
         for (const revenue of month.revenues) {
           const account = this.db.save('contas', { tipo: 'receber', empresa_id: company.id, categoria_id: categories['Receitas de contratos'], descricao: revenue.name, competencia: month.competencia, vencimento: `${month.competencia}-10`, valor_bruto_centavos: cents(revenue.value), valor_centavos: cents(revenue.value), status: 'pendente', origem_tipo: 'importacao_2026', origem_id: importRow.id })
-          rawInsert.run(importRow.id, month.competencia, XLSX.utils.encode_cell({ r: revenue.row - 1, c: month.startCol + 1 }), 'receita', revenue.name, cents(revenue.value), JSON.stringify(revenue), 'contas', account.id, 'importado'); imported++
+            rawInsert.run(importRow.id, month.competencia, encodeCell({ r: revenue.row - 1, c: month.startCol + 1 }), 'receita', revenue.name, cents(revenue.value), JSON.stringify(revenue), 'contas', account.id, 'importado'); imported++
         }
         const actualRevenue = month.revenues.reduce((sum, item) => sum + cents(item.value), 0)
         const actualExpense = month.expenses.reduce((sum, item) => sum + cents(item.value), 0) + payrollTotal
@@ -220,7 +219,5 @@ class ImportService {
 }
 
 module.exports = { ImportService, parseSheet2026, cents, normalizeName, parseEmployeeIdentity }
-
-
 
 
