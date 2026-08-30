@@ -18,5 +18,6 @@
     "build:web": "npm --workspace apps/web run build",
     "test:desktop": "npm --workspace apps/desktop test",
     "build:desktop": "npm --workspace apps/desktop run build"
+    ,"typecheck:contracts": "npm --workspace apps/web exec -- tsc --noEmit -p ../../tsconfig.json"
   }
 }
