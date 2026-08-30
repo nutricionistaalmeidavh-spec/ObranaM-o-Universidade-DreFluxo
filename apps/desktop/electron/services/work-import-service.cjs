@@ -3,6 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const XLSX = require('xlsx')
 const { dialog } = require('electron')
+const { assertSpreadsheetInput } = require('./spreadsheet-guard.cjs')
 
 const MONTHS = {
   janeiro: '01', fevereiro: '02', marco: '03', 'março': '03', abril: '04', maio: '05', junho: '06',
@@ -78,6 +79,7 @@ class WorkImportService {
   }
 
   parseProposal(filePath) {
+    assertSpreadsheetInput(filePath)
     const workbook = XLSX.readFile(filePath, { raw: true, cellDates: false })
     const sheetName = workbook.SheetNames[0]
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', raw: true })
@@ -95,6 +97,7 @@ class WorkImportService {
   }
 
   parseMap(filePath) {
+    assertSpreadsheetInput(filePath)
     const workbook = XLSX.readFile(filePath, { raw: true, cellDates: false })
     const sheetName = workbook.SheetNames[0]
     const sheet = workbook.Sheets[sheetName]

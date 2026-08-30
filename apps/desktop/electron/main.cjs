@@ -57,7 +57,7 @@ function envelope(fn) {
     try { return { ok: true, data: await fn(payload || {}) } }
     catch (error) {
       console.error(error)
-      return { ok: false, error: { message: error?.message || 'Erro inesperado.', details: error?.stack || String(error) } }
+      return { ok: false, error: { message: error?.message || 'Erro inesperado.' } }
     }
   }
 }

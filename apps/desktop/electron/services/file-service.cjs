@@ -128,11 +128,19 @@ class FileService {
     return document
   }
 
-  open(filePath) { this.assertManagedOrExisting(filePath); return shell.openPath(filePath) }
-  reveal(filePath) { this.assertManagedOrExisting(filePath); shell.showItemInFolder(filePath); return true }
-  copyPath(filePath) { this.assertManagedOrExisting(filePath); clipboard.writeText(filePath); return true }
+  open(filePath) { this.assertManagedPath(filePath); return shell.openPath(filePath) }
+  reveal(filePath) { this.assertManagedPath(filePath); shell.showItemInFolder(filePath); return true }
+  copyPath(filePath) { this.assertManagedPath(filePath); clipboard.writeText(filePath); return true }
   openDocumentsFolder() { return shell.openPath(this.documentsDir) }
-  assertManagedOrExisting(filePath) { if (!filePath || !fs.existsSync(filePath)) throw new Error('Arquivo ou pasta indisponível.') }
+  assertManagedPath(filePath) {
+    if (!filePath || typeof filePath !== 'string') throw new Error('Arquivo ou pasta indisponível.')
+    const root = path.resolve(this.documentsDir)
+    const target = path.resolve(filePath)
+    const relative = path.relative(root, target)
+    if (relative.startsWith('..' + path.sep) || relative === '..' || path.isAbsolute(relative) || !fs.existsSync(target)) {
+      throw new Error('Arquivo ou pasta fora da área gerenciada.')
+    }
+  }
 
   deleteDocument({ id, deletePhysical = false }) {
     const document = this.db.get('documentos', id)

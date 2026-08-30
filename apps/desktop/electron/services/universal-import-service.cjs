@@ -3,6 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const XLSX = require('xlsx')
 const { dialog } = require('electron')
+const { assertSpreadsheetInput } = require('./spreadsheet-guard.cjs')
 
 const AREAS = {
   financeiro: { label: 'Financeiro', fields: ['descricao','valor','tipo','competencia','vencimento','categoria','obra','fornecedor','cliente'] },
@@ -124,6 +125,7 @@ class UniversalImportService {
   }
 
   analyze(filePath) {
+    assertSpreadsheetInput(filePath)
     const workbook = XLSX.readFile(filePath, { cellDates: true })
     const token = crypto.randomUUID()
     const sheets = workbook.SheetNames.map((name) => {

@@ -3,6 +3,7 @@ const crypto = require('node:crypto')
 const path = require('node:path')
 const XLSX = require('xlsx')
 const { dialog } = require('electron')
+const { assertSpreadsheetInput } = require('./spreadsheet-guard.cjs')
 
 const MONTHS = { JANEIRO:1, FEVEREIRO:2, MARÇO:3, MARCO:3, ABRIL:4, MAIO:5, JUNHO:6, JULHO:7, AGOSTO:8, SETEMBRO:9, OUTUBRO:10, NOVEMBRO:11, DEZEMBRO:12 }
 const EXPENSE_SKIP = /^(total|2º quinzena|extras$|receita$|caixa$|despesas$)/i
@@ -42,6 +43,7 @@ function mode(values) {
 }
 
 function parseSheet2026(filePath) {
+  assertSpreadsheetInput(filePath)
   const workbook = XLSX.readFile(filePath, { cellDates: false, raw: true })
   if (!workbook.Sheets['2026']) throw new Error('A planilha não possui a aba 2026.')
   const sheet = workbook.Sheets['2026']
@@ -218,7 +220,6 @@ class ImportService {
 }
 
 module.exports = { ImportService, parseSheet2026, cents, normalizeName, parseEmployeeIdentity }
-
 
 
 
