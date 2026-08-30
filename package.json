@@ -3,6 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "description": "Monorepo integrado do produto ObraNaMão, Universidade Empresarial e Fluxo DRE",
+  "engines": {
+    "node": ">=20 <23",
+    "npm": ">=10"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
