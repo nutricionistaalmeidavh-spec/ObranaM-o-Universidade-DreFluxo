@@ -45,3 +45,5 @@ export interface BootstrapResponse {
   session: DesktopSession;
   pendingChanges: SyncChange[];
 }
+
+export { isRole, isSyncChange } from './guards.js';
