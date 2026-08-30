@@ -7,8 +7,9 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@drefluxo/domain": ["packages/domain/src/index.ts"]
+      "@drefluxo/domain": ["packages/domain/src/index.ts"],
+      "@drefluxo/contracts": ["packages/contracts/src/index.ts"]
     }
   },
-  "include": ["packages/domain/src/**/*.ts", "packages/contracts/src/**/*.ts"]
+  "include": ["packages/domain/src/**/*.ts", "packages/contracts/src/**/*.ts", "packages/integration/src/**/*.ts"]
 }
