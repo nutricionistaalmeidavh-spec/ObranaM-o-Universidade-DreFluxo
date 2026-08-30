@@ -47,3 +47,5 @@ export interface BootstrapResponse {
 }
 
 export { isRole, isSyncChange } from './guards.js';
+export { canAccessWork } from './auth.js';
+export type { AuthenticatedPrincipal, AuthorizationContext } from './auth.js';
