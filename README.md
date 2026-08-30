@@ -19,6 +19,6 @@ O AppDeploy é o runtime publicado, não a fonte do código.
 
 ## Estado
 
-O primeiro commit criou a estrutura-base. O segundo passo importa o Fluxo DRE em `apps/desktop`, preservando seu Electron, SQLite, migrations e serviços. A Universidade será importada em `apps/web` em um commit separado. Cada etapa deve ser testada antes da integração de contratos e sincronização.
+O primeiro commit criou a estrutura-base. O Fluxo DRE foi importado em `apps/desktop` e a Universidade Empresarial em `apps/web`, cada um em commit separado. A integração de contratos, autenticação e sincronização ainda será feita em etapas próprias, sem misturar as implementações.
 
 O snapshot AppDeploy de referência está registrado em [`APPDEPLOY_SYNC.md`](./APPDEPLOY_SYNC.md).

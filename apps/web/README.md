@@ -1,3 +1,3 @@
 # Web
 
-Destino da operação de campo, portal e Universidade Empresarial. O código será importado do repositório histórico em uma etapa própria.
+Operação de campo, portal e Universidade Empresarial. O código foi importado do repositório histórico e permanece isolado em `apps/web` até a extração dos contratos compartilhados.
