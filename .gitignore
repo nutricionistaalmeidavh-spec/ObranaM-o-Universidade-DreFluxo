@@ -9,3 +9,4 @@ release/
 *.sqlite
 *.sqlite3
 *.db
+*.tsbuildinfo
