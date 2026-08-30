@@ -119,7 +119,7 @@ class UniversalImportService {
   constructor({ db }) { this.db = db; this.pending = new Map() }
 
   async choose() {
-    const picked = await dialog.showOpenDialog({ title: 'Selecionar planilha ou CSV', properties: ['openFile'], filters: [{ name: 'Planilhas', extensions: ['xlsx','xls','xlsm','csv'] }] })
+    const picked = await dialog.showOpenDialog({ title: 'Selecionar planilha ou CSV', properties: ['openFile'], filters: [{ name: 'Planilhas', extensions: ['xlsx','xlsm','csv'] }] })
     if (picked.canceled) return null
     return this.analyze(picked.filePaths[0])
   }

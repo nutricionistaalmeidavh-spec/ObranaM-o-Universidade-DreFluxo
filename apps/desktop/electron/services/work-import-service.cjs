@@ -49,7 +49,7 @@ class WorkImportService {
     const result = await dialog.showOpenDialog({
       title: 'Selecionar proposta e mapa de medição',
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Planilhas Excel', extensions: ['xls', 'xlsx'] }]
+      filters: [{ name: 'Planilhas Excel', extensions: ['xlsx', 'xlsm'] }]
     })
     if (result.canceled || !result.filePaths.length) return { canceled: true }
     return this.importFiles(result.filePaths)
