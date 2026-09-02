@@ -206,3 +206,4 @@ export async function hydrateQuestionVisuals(root: ParentNode = document) {
     mapped.forEach((node) => setUnavailable(node, () => { statePromise = null; void hydrateQuestionVisuals(root); }));
   }
 }
+
