@@ -35,3 +35,4 @@ export function adminFailureDetail(error: unknown): string {
   if (status === 403) return 'Você não tem permissão para acessar a Administração RH.';
   return 'Não foi possível carregar a Administração RH. Tente novamente.';
 }
+

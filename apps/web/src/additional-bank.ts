@@ -6,7 +6,7 @@ const RAW:AdditionalVariant[]=[
     "skill": "adicao",
     "level": "N2",
     "topic": "CONTAGEM E QUANTIDADE",
-    "prompt": "Conte e escreva quantos objetos há no desenho: 7 bolinhas.",
+    "prompt": "Conte e escreva quantos objetos há no desenho.",
     "source": "1-Banco-Questoes-Matematica-Kumon.txt"
   },
   {
