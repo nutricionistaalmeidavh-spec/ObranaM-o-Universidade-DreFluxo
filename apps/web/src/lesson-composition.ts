@@ -19,3 +19,4 @@ export function buildLessonComposition(id:string,seed:number,selectionVersion=1)
  if(core.length!==expected||reinforcementQuestions.length!==3||questionIds.some(id=>!id)||reinforcementQuestionIds.some(id=>!id))throw new Error('Não foi possível congelar a composição desta aula.');
  return{seed:seed>>>0,levelNumber,closesStage,mainQuestions,reviewQuestions,reinforcementQuestions,questionIds,reinforcementQuestionIds};
 }
+
