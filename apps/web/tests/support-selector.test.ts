@@ -19,3 +19,4 @@ it('mantém o apoio dentro do bloco do nível solicitado', () => {
   expect(selectSupportExcerpt({ material, competency: 'leitura', level: 'N2', topic: 'AVISOS' }).essential).toContain('AVISOS');
   expect(selectSupportExcerpt({ material, competency: 'leitura', level: 'N2', topic: 'LETRAS' }).essential).toContain('Leia uma informação');
 });
+

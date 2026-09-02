@@ -60,6 +60,7 @@ Steps:
 
 Expected: Parte 1 e Parte 2 têm textos diferentes e curtos; o material completo é opcional; dificuldade nas primeiras 3 ativa explicação alternativa + 3 questões extras sem repetir as centrais; após as 6 aparece checkpoint e o backend salva evidências da primeira tentativa e do reforço.
 
+
 ## Test 6 - Universidade agrupa cinco níveis em três Aprendizados
 Viewport: mobile (375x667)
 Covers: Universidade, Aprendizado 1/2/3, compatibilidade visual com progresso N1-N5 existente, ponto de entrada recomendado
@@ -71,6 +72,7 @@ Steps:
 3. Conferir os três cards, abrir o Aprendizado recomendado e retornar
 
 Expected: Home e Trilhas exibem Aprendizado 1 - Fundamentos, Aprendizado 2 - Aplicação e Aprendizado 3 - Autonomia com percentuais; a próxima sessão indica 5–10 minutos ou 3–5 minutos para revisão; N1-N5 não aparecem para o colaborador e o botão recomendado abre o ponto interno correspondente.
+
 
 ## Test 7 - Sondagem rápida termina em até 18 perguntas
 Viewport: mobile (375x667)
@@ -84,6 +86,7 @@ Steps:
 
 Expected: A interface mostra Questão X de aproximadamente 15 em vez de Competência X de 12; a sondagem termina com no máximo 18 respostas e exibe Comunicação, Matemática e Mundo do Trabalho como ponto de partida sem mostrar N1-N5 ao colaborador.
 
+
 ## Test 8 - Trilhas e progresso integra navegação e desenvolvimento sem estados contraditórios
 Viewport: mobile (375x667)
 Covers: Universidade, Trilhas e progresso, áreas, competências, próxima ação e estados de progresso
@@ -95,6 +98,7 @@ Steps:
 3. Voltar à navegação principal e conferir que Meu desenvolvimento não aparece mais
 
 Expected: Trilhas e progresso concentra a visualização de avanço e navegação; competências em correção não aparecem simultaneamente como prontas para começar; o menu não contém Meu desenvolvimento e o destaque de Aprendizado significa recomendado agora, não progresso já realizado.
+
 
 ## Test 9 - Aula permanece idêntica ao sair, atualizar ou voltar depois
 Viewport: mobile (375x667)
@@ -108,6 +112,7 @@ Steps:
 
 Expected: A mesma tentativa mantém questões e ordem após reload/retorno; a primeira resposta muda o status para em andamento e a conclusão marca a tentativa como concluída sem trocar a composição.
 
+
 ## Test 10 - Tutor prepara aula e o sorteio trava após a primeira resposta
 Viewport: desktop (1280x800)
 Covers: Tutor, POST /api/edu/admin/participant, /admin/attempt/prepare, /freeze, /reroll e LessonAttempt preparada
@@ -119,6 +124,7 @@ Steps:
 3. Entrar como colaborador, responder a primeira questão; voltar ao Tutor e tentar sortear novamente
 
 Expected: O Tutor mostra Aprendizado, nível interno e confiança por competência; a aula preparada aparece para o colaborador com composição congelada; o reroll funciona somente sem respostas e é bloqueado depois da primeira resposta.
+
 
 ## Test 11 - Papel usa a mesma aula e não sobrescreve respostas online
 Viewport: desktop (1280x800)
@@ -132,6 +138,7 @@ Steps:
 
 Expected: A impressão contém exatamente as questões da tentativa; respostas do papel ficam vinculadas à mesma LessonAttempt com origem tutor-paper; questões já respondidas aparecem bloqueadas e o backend rejeita sobrescrita.
 
+
 ## Test 12 - Revisão espaçada é curta e prioriza dificuldade e questões ainda não usadas
 Viewport: mobile (375x667)
 Covers: Universidade, reviewQuestionIds/reviewPoolIds/reviewHistoryIds, LessonAttempt mode review e intervalos 1/3/7/14/30 dias
@@ -144,6 +151,7 @@ Steps:
 
 Expected: A revisão abre como uma tentativa própria com 4 questões; erros anteriores aparecem primeiro quando elegíveis, o sistema roda questões ainda não usadas nas revisões e mantém os intervalos progressivos de 1, 3, 7, 14 e 30 dias.
 
+
 ## Test 13 - Linguagem neutra, layout amplo, apoio inline e imagens sem falso carregamento
 Viewport: desktop (1440x900) e mobile (375x667)
 Covers: Trilhas e progresso, área de capacitação, aula, material de apoio inline, question-assets-549, seleção visual V2
@@ -155,3 +163,63 @@ Steps:
 3. Avançar por questões com e sem imagem mapeada
 
 Expected: Não aparece o termo "alfabetização" em títulos ou textos da experiência; a área usa nomenclatura de Capacitação; cards ocupam melhor a largura; questões mapeadas mostram imagem de apoio e questões sem imagem não exibem "Carregando" que desaparece depois.
+
+## Test 14 - Campo gera RDO automático e preserva sincronização pendente
+Viewport: mobile (375x667)
+Covers: Obra360 Dias, apontamento de produção, homem-hora, rascunho RDO no estado compartilhado, sincronização PWA ↔ Desktop e recuperação offline
+Description: Confirma que o trabalho normal do canteiro alimenta um fechamento diário sem exigir recadastro e que uma falha de rede não apaga a alteração local.
+
+Steps:
+1. Em Dias, registrar presença, criar um apontamento de produção e concluí-lo com resultado físico
+2. Abrir Revisar fechamento e conferir os dados agregados de equipe, homem-hora, produção e pendências
+3. Salvar o fechamento para o Desktop; se a sincronização estiver indisponível, reconectar e recarregar a obra
+
+Expected: O RDO é montado a partir dos dados já registrados, fica marcado como pronto quando não há sessão aberta e presença/produção estão preenchidas; alterações offline permanecem no aparelho e são enviadas antes de o estado remoto substituir a cópia local.
+
+## Test 15 - Planejamento compara previsto e realizado com produtividade real
+Viewport: mobile (375x667)
+Covers: Obra360 Planejamento, planos diários, sessões concluídas, homem-hora por serviço, produtividade por funcionário e projeção operacional
+Description: Confirma que o painel usa os apontamentos existentes para comparar o planejado com o executado sem criar um fluxo paralelo.
+
+Steps:
+1. Planejar uma frente para hoje, iniciar o planejamento e finalizar o apontamento da mesma frente/pavimento
+2. Abrir Planejamento e conferir Previsto × realizado dos últimos 7 dias e a produtividade do serviço
+3. Abrir Equipe e conferir o histórico de HH/30d do funcionário que participou da sessão
+
+Expected: O planejamento aparece como executado, a aderência é calculada pela correspondência frente+pavimento, HH e conclusões são derivados das sessões e a Equipe mostra HH reais do período sem exigir novo lançamento.
+
+## Test 16 - Gestão mobile recebe apenas o resumo operacional calculado no Desktop
+Viewport: mobile (375x667)
+Covers: Gestão, /api/desktop/mobile-summary/publish, módulos obra360 e rdo, separação Desktop pesado × PWA leve
+Description: Confirma que cronograma, produtividade e RDO são processados no Desktop e que o celular recebe somente os indicadores necessários para consulta executiva.
+
+Steps:
+1. No Desktop conectado, sincronizar a obra e publicar o resumo executivo
+2. Abrir Gestão no PWA como Admin
+3. Conferir os cards Obra / Produção e RDO
+
+Expected: O PWA mostra avanço físico, etapas ativas/atrasadas, HH, conclusões e situação dos RDOs, sem criar telas pesadas de Gantt, consolidação ou geração de PDF no celular.
+
+## Test 17 - Artisys Finance pode ser consumido pelo Desktop sem duplicar o motor
+Viewport: desktop
+Covers: device token, POST /api/desktop/finance/read, POST /api/desktop/finance/write, conciliação 1:N, Gemini e importação financeira
+Description: Confirma que o FLUXODRE Desktop usa o mesmo motor financeiro integrado da empresa, sem mover regras sensíveis para o PWA.
+
+Steps:
+1. Vincular um Desktop Admin com módulo finance e consultar dashboard, transações, obrigações e sugestões
+2. Confirmar uma sugestão em que um PIX liquida duas obrigações do mesmo beneficiário e consultar novamente a conciliação
+3. Consultar status Gemini e fazer uma pergunta financeira usando a rota Desktop
+
+Expected: O Desktop recebe somente dados da empresa vinculada ao device token; a conciliação suporta múltiplas alocações e confirmação humana; a IA reutiliza a configuração segura do backend e nenhuma API Key é retornada ao Desktop.
+
+## Test 18 - IA MH cruza motores determinísticos sem alterar dados
+Viewport: desktop (1280x800)
+Covers: POST /api/desktop/ai/analyze, device token, Gemini compartilhada, produção, planejamento, RH, financeiro, custos, medições, documentos, ranking executivo e modo somente leitura
+Description: Confirma que a IA MH recebe apenas fatos calculados pelos motores Desktop, interpreta o ranking executivo e não executa ações.
+
+Steps:
+1. No Desktop vinculado, abrir IA MH após existir histórico operacional, custos, medições e documentos
+2. Perguntar qual obra merece mais atenção hoje e solicitar os motivos
+3. Conferir a resposta e retornar às telas de origem
+
+Expected: A resposta usa métricas dos motores determinísticos e o ranking recebido, diferencia fatos de hipótese/recomendação, informa dados ausentes quando necessário e nenhum dado operacional, financeiro, documental, de medição ou RH é alterado.
