@@ -35,3 +35,4 @@ export function selectSupportExcerpt(input: { material: string; competency: stri
   const complementary = selected.slice(4).join('\n').slice(0, maxComplementary);
   return { essential, complementary };
 }
+
