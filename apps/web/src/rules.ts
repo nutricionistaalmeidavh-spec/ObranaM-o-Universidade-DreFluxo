@@ -28,3 +28,4 @@ export function reviewInterval(stage: number, successful: boolean): number {
 export function isUnitConsolidated(totalItems: number, correctItems: number): boolean {
   return totalItems > 0 && correctItems === totalItems;
 }
+
