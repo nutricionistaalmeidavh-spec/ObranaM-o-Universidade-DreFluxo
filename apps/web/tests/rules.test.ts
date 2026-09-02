@@ -59,3 +59,4 @@ describe('conclusão e banco curricular', () => {
     expect(CONTENT['adicao-N1'].material).toContain('conteúdo complementar');
   });
 });
+
