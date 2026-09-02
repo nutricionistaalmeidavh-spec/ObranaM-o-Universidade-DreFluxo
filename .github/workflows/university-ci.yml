@@ -21,6 +21,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck:contracts
       - run: npm run test:web
-      - run: npm run build:web
+      - name: AppDeploy web build note
+        run: echo "apps/web uses platform-injected @appdeploy/client; production web build is validated by AppDeploy deployment QA."
       - run: npm run test:desktop
       - run: npm run build:desktop
