@@ -15,3 +15,4 @@ describe('modelo de apresentação do RH', () => {
     expect(adminFailureDetail(new Error('segredo interno'))).toBe('Não foi possível carregar a Administração RH. Tente novamente.');
   });
 });
+

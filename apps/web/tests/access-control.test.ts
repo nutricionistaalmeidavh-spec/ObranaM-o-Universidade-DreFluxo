@@ -39,3 +39,4 @@ describe('controle de acesso educacional', () => {
     expect(educationJobRole('gestor', 'Encarregado')).toBe('Encarregado');
   });
 });
+
