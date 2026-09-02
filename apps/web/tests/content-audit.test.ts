@@ -4,6 +4,7 @@ import { SUPPORT_MATERIALS } from '../src/support-materials';
 import { ADDITIONAL_VARIANTS } from '../src/additional-bank';
 import { PORTUGUESE_VARIANTS } from '../src/portuguese-bank';
 import { YOUNG_ADULT_VARIANTS } from '../src/young-adult-bank';
+import { hasQuestionVisual } from '../src/question-visual-index';
 
 const normalize = (value: string) => value
   .toLowerCase()
@@ -29,7 +30,7 @@ describe('auditoria semântica do banco de questões', () => {
     expect(Object.keys(CONTENT)).toHaveLength(60);
     expect(rows).toHaveLength(180);
     expect(rows.every(row => row.item.prompt.trim() && row.item.hint.trim())).toBe(true);
-    expect(rows.every(row => row.item.visual?.src && row.item.visual?.alt)).toBe(true);
+    expect(rows.every(row => hasQuestionVisual(row.item.prompt))).toBe(true);
   });
 
   it('não repete enunciados nem alternativas corretas entre as unidades', () => {
@@ -71,7 +72,7 @@ describe('auditoria semântica do banco de questões', () => {
   it('incorpora banco adicional de Português sem alterar a quantidade por unidade', () => {
     const variants = Object.values(QUESTION_BANK).flat();
     expect(variants.length).toBeGreaterThan(0);
-    expect(variants.every(item => (item.kind === 'choice' || item.kind === 'text' || item.kind === 'short-text') && item.visual?.src)).toBe(true);
+    expect(variants.every(item => (item.kind === 'choice' || item.kind === 'text' || item.kind === 'short-text') && hasQuestionVisual(item.prompt))).toBe(true);
     expect(Object.entries(CONTENT).every(([id, unit]) => selectQuestions(id, unit.items, 42).length === 3)).toBe(true);
     expect(SUPPORT_MATERIALS.matematica.length).toBeGreaterThan(100);
     expect(SUPPORT_MATERIALS.portugues.length).toBeGreaterThan(100);
@@ -92,7 +93,7 @@ describe('auditoria semântica do banco de questões', () => {
     expect(variants.every(({ item }) => skills.has(item.skill) && levels.has(item.level) && kinds.has(item.kind))).toBe(true);
     const renderedVariants = Object.values(QUESTION_BANK).flat();
     expect(renderedVariants).toHaveLength(429);
-    expect(renderedVariants.every(item => item.visual?.src && item.visual?.alt)).toBe(true);
+    expect(renderedVariants.every(item => hasQuestionVisual(item.prompt))).toBe(true);
     const renderedByPrompt = new Map(renderedVariants.map(item => [item.prompt, item]));
     const invalidChoices = variants.filter(({ item }) => item.kind === 'choice' && !(renderedByPrompt.get(item.prompt)?.options?.length && renderedByPrompt.get(item.prompt)?.options?.includes(String(renderedByPrompt.get(item.prompt)?.answer))));
     expect(invalidChoices).toEqual([]);
