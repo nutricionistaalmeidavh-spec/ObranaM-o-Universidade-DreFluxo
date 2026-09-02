@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Monorepo integrado do produto ObraNaMão, Universidade Empresarial e Fluxo DRE",
   "engines": {
-    "node": ">=20 <23",
+    "node": ">=22.12 <23",
     "npm": ">=10"
   },
   "workspaces": [
@@ -17,7 +17,7 @@
     "test:web": "npm --workspace apps/web test",
     "build:web": "npm --workspace apps/web run build",
     "test:desktop": "npm --workspace apps/desktop test",
-    "build:desktop": "npm --workspace apps/desktop run build"
-    ,"typecheck:contracts": "npm --workspace apps/web exec -- tsc --noEmit -p ../../tsconfig.json"
+    "build:desktop": "npm --workspace apps/desktop run build",
+    "typecheck:contracts": "npm --workspace apps/web exec -- tsc --noEmit -p ../../tsconfig.json"
   }
 }
