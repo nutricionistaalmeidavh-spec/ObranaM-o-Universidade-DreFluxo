@@ -47,3 +47,4 @@ export async function clearDiagnosticDraft(
   await store.delete(diagnosticDraftTable(participantId), current.id);
   return true;
 }
+

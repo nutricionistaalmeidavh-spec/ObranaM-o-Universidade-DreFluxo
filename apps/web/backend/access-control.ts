@@ -49,3 +49,4 @@ export function educationRoleChangeDecision(input: {
   }
   return 'allowed';
 }
+

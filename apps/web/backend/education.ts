@@ -132,6 +132,7 @@ async function issue(id: string) { const t = crypto.randomUUID().replace(/-/g, '
 async function participant(t: string) { if (t.length < 40)
     return null; const s = (await db.list<EduSession>(sessionTable(t), { limit: 1 })).items[0]; if (!s || s.expiresAt < now())
     return null; const [p] = await db.get<EduParticipant>('edu_participants', [s.participantId]); return p?.status === 'active' ? { ...p, id: s.participantId } : null; }
+export async function educationParticipantBySession(token: string) { return participant(token); }
 const effectiveRole = (p: EduParticipant): EduRole => {
     const em = email(p.email || '');
     if (SUPERADMIN_EMAILS.has(em)) return 'superadmin';
@@ -161,6 +162,41 @@ else if (input.role && p.role !== desired) {
     await db.update('edu_participants', [{ id: p.id, record: { ...p, role: desired, jobRole: educationJobRole(desired, p.jobRole), updatedAt: now() } }]);
     p = { ...p, role: desired, jobRole: educationJobRole(desired, p.jobRole) };
 } return { token: await issue(p.id), participant: pub(p) }; }
+export async function ensureEducationPhoneParticipant(input: { phone: string; name: string; employeeId?: string; companyId?: string; companyName?: string; jobRole?: string }) {
+    const ph = phone(input.phone); if (!ph) throw new Error('Celular inválido.');
+    let p = await find(phoneTable(ph));
+    const stamp = now();
+    if (!p) {
+        const s = crypto.randomUUID().replace(/-/g, ''), x: EduParticipant = {
+            name: input.name || 'Colaborador', phone: ph, employeeId: input.employeeId, companyId: input.companyId, companyName: input.companyName,
+            jobRole: input.jobRole || educationJobRole('colaborador'), role: 'colaborador', status: 'active',
+            passwordSalt: s, passwordHash: await hash(crypto.randomUUID(), s), mustChangePassword: true, createdAt: stamp, updatedAt: stamp
+        }, [id] = await db.add('edu_participants', [x]);
+        if (!id) throw new Error('Não foi possível preparar o acesso por celular.');
+        await db.add(phoneTable(ph), [{ participantId: id, createdAt: stamp }]);
+        p = { ...x, id };
+    } else {
+        const next = {
+            ...p, phone: ph, name: input.name || p.name, employeeId: input.employeeId || p.employeeId,
+            companyId: input.companyId || p.companyId, companyName: input.companyName || p.companyName,
+            jobRole: input.jobRole || p.jobRole, role: 'colaborador' as EduRole, status: 'active' as const, updatedAt: stamp
+        };
+        await db.update('edu_participants', [{ id: p.id, record: next as unknown as Record<string, unknown> }]);
+        p = next;
+    }
+    return { participant: pub(p) };
+}
+export async function educationPhoneAccessState(inputPhone: string) {
+    const ph = phone(inputPhone); if (!ph) return null; const p = await find(phoneTable(ph)); if (!p || p.status !== 'active') return null;
+    return { exists: true, needsPasswordSetup: p.mustChangePassword === true, participant: pub(p) };
+}
+export async function claimEducationPhonePassword(inputPhone: string, nextPassword: string) {
+    const ph = phone(inputPhone); if (!ph || nextPassword.length < 8) return null; const p = await find(phoneTable(ph));
+    if (!p || p.status !== 'active' || p.mustChangePassword !== true) return null;
+    const s = crypto.randomUUID().replace(/-/g, ''), next = { ...p, passwordSalt: s, passwordHash: await hash(nextPassword, s), mustChangePassword: false, updatedAt: now() };
+    await db.update('edu_participants', [{ id: p.id, record: next as unknown as Record<string, unknown> }]);
+    return { token: await issue(p.id), participant: pub(next) };
+}
 export async function syncEducationIdentityByEmail(input: { email: string; employeeId?: string; companyId?: string; companyName?: string; name?: string; phone?: string; jobRole?: string }) { const em = email(input.email); if (!em) return false; const p = await find(emailTable(em)); if (!p) return false; const next = { ...p, employeeId: input.employeeId || p.employeeId, companyId: input.companyId || p.companyId, companyName: input.companyName || p.companyName, name: input.name || p.name, phone: input.phone || p.phone, jobRole: input.jobRole || p.jobRole, updatedAt: now() }; await db.update('edu_participants', [{ id: p.id, record: next as unknown as Record<string, unknown> }]); return true; }
 export async function setEducationParticipantStatusByEmail(inputEmail: string, active: boolean) { const em = email(inputEmail); if (!em) return false; const p = await find(emailTable(em)); if (!p) return false; await db.update('edu_participants', [{ id: p.id, record: { ...p, status: active ? 'active' : 'inactive', updatedAt: now() } as unknown as Record<string, unknown> }]); return true; }
 export const EDUCATION_ROUTES = { 'POST /api/edu/login': [async (c) => { const b = rec(c.body), id = String(b.identifier || '').trim(), ph = phone(id), em = email(id), pass = String(b.password || ''); if ((!ph && !em) || pass.length < 6)
@@ -216,6 +252,20 @@ export const EDUCATION_ROUTES = { 'POST /api/edu/login': [async (c) => { const b
             return error('Participante não encontrado.', 404); const targetRole = effectiveRole(target), decision = educationRoleChangeDecision({ actorRole, targetRole, nextRole, isSelf: targetId === actor.id }); if (decision === 'admin-boundary')
             return error('Admin pode gerenciar apenas RH, Gestor e Colaborador.', 403); if (decision === 'self-superadmin-demotion')
             return error('O Superadmin não pode remover o próprio acesso.', 409); await db.update('edu_participants', [{ id: targetId, record: { ...target, role: nextRole, jobRole: educationJobRole(nextRole, target.jobRole), updatedAt: now() } }]); return json({ participant: pub({ ...target, id: targetId, role: nextRole, jobRole: educationJobRole(nextRole, target.jobRole) }) }); }] };
+export const EDUCATION_PHONE_ACCESS_ROUTES = {
+    'POST /api/edu/access-status': [async (c) => {
+        const state = await educationPhoneAccessState(String(rec(c.body).identifier || ''));
+        if (!state) return error('Celular ainda não liberado pelo RH.', 404);
+        return json({ exists: true, needsPasswordSetup: state.needsPasswordSetup, participant: state.participant });
+    }],
+    'POST /api/edu/first-access': [async (c) => {
+        const b = rec(c.body), password = String(b.password || '');
+        if (password.length < 8) return error('Use ao menos 8 caracteres.', 400);
+        const session = await claimEducationPhonePassword(String(b.identifier || ''), password);
+        if (!session) return error('Primeiro acesso indisponível para este celular.', 409);
+        return json(session);
+    }],
+};
 export const EDUCATION_DRAFT_ROUTES = {
     'POST /api/edu/diagnostic/draft/read': [async (c) => {
             const p = await participant(String(rec(c.body).token || ''));
@@ -243,3 +293,4 @@ export const EDUCATION_DRAFT_ROUTES = {
             return json({ ok: true });
         }],
 };
+
