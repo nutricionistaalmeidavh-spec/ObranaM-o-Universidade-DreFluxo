@@ -15,10 +15,10 @@ Este repositório será a fonte versionada da integração. Os repositórios his
 - `nutricionistaalmeidavh-spec/UniversidadeEmpresarial`
 - `nutricionistaalmeidavh-spec/drefluxo`
 
-O AppDeploy é o runtime publicado, não a fonte do código.
+O AppDeploy é o runtime publicado. Após a reconciliação de 2026-09-02, o snapshot v93 foi trazido de volta ao monorepo para restabelecer o Git como fonte versionada.
 
 ## Estado
 
-O primeiro commit criou a estrutura-base. O Fluxo DRE foi importado em `apps/desktop` e a Universidade Empresarial em `apps/web`, cada um em commit separado. A integração de contratos, autenticação e sincronização ainda será feita em etapas próprias, sem misturar as implementações.
+O FluxoDRE Desktop está em `apps/desktop`; campo, portal, Universidade e backend online estão em `apps/web`. O Desktop permanece offline-first, mas agora possui vínculo opcional com o backend para sincronização, Financeiro Inteligente e recursos online.
 
 O snapshot AppDeploy de referência está registrado em [`APPDEPLOY_SYNC.md`](./APPDEPLOY_SYNC.md).
