@@ -1,0 +1,47 @@
+name: Package Desktop macOS M1 ZIP
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/desktop-macos-zip.yml'
+
+jobs:
+  package-macos-zip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          echo "DESKTOP_VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Download M1 DMG and checksum from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          gh release download "desktop-v$DESKTOP_VERSION" --repo "${{ github.repository }}" --pattern "Fluxo-DRE-$DESKTOP_VERSION-macOS-M1-arm64.dmg*" --dir out
+      - name: Create ZIP
+        run: |
+          cd out
+          zip -9 "Fluxo-DRE-Desktop-$DESKTOP_VERSION-macOS-M1.zip" "Fluxo-DRE-$DESKTOP_VERSION-macOS-M1-arm64.dmg" "Fluxo-DRE-$DESKTOP_VERSION-macOS-M1-arm64.dmg.sha256"
+          sha256sum "Fluxo-DRE-Desktop-$DESKTOP_VERSION-macOS-M1.zip" | tee "Fluxo-DRE-Desktop-$DESKTOP_VERSION-macOS-M1.zip.sha256"
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-macOS-M1-ZIP
+          path: |
+            out/Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-macOS-M1.zip
+            out/Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-macOS-M1.zip.sha256
+          compression-level: 0
+          retention-days: 90
+      - name: Publish ZIP in GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "desktop-v$DESKTOP_VERSION" "out/Fluxo-DRE-Desktop-$DESKTOP_VERSION-macOS-M1.zip" "out/Fluxo-DRE-Desktop-$DESKTOP_VERSION-macOS-M1.zip.sha256" --repo "${{ github.repository }}" --clobber
