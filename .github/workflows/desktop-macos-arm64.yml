@@ -1,0 +1,70 @@
+name: Desktop macOS Apple Silicon
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '.nvmrc'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop-macos-arm64.yml'
+
+jobs:
+  macos-arm64:
+    runs-on: macos-14-arm64
+    timeout-minutes: 35
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies on Apple Silicon
+        run: npm ci
+      - name: Test Desktop
+        run: npm run test:desktop
+      - name: Build Desktop
+        run: npm run build:desktop
+      - name: Generate Apple Silicon DMG
+        working-directory: apps/desktop
+        run: ../../node_modules/.bin/electron-builder --mac dmg --arm64 --publish never
+      - name: Resolve Desktop version and DMG
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          DMG=$(find apps/desktop/release -maxdepth 1 -type f -name '*.dmg' | head -n 1)
+          test -n "$DMG"
+          echo "DESKTOP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "DMG_PATH=$DMG" >> "$GITHUB_ENV"
+          echo "DMG_NAME=$(basename "$DMG")" >> "$GITHUB_ENV"
+      - name: Validate Apple Silicon artifact
+        shell: bash
+        run: |
+          hdiutil verify "$DMG_PATH"
+          file "$DMG_PATH"
+          shasum -a 256 "$DMG_PATH"
+      - name: Upload macOS M1 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-macOS-M1
+          path: ${{ env.DMG_PATH }}
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish DMG in GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="desktop-v$DESKTOP_VERSION"
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Fluxo DRE Desktop v$DESKTOP_VERSION" --notes "Instaladores Windows e macOS Apple Silicon (M1/M2/M3/M4)."
+          fi
+          gh release upload "$TAG" "$DMG_PATH" --repo "${{ github.repository }}" --clobber
