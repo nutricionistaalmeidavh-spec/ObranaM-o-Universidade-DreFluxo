@@ -15,7 +15,7 @@ function setup(){
   const db=new DatabaseService({dataDir:dir,migrationsDir:path.resolve(import.meta.dirname,'../../database/migrations')})
   db.open();created.push({dir,db})
   const company=db.save('empresas',{razao_social:'Empresa Teste LTDA',cnpj:'50.733.669/0001-60',status:'ativa'})
-  const cargo=db.save('cargos',{nome:'Ajudante de Encanador',salario_base_centavos:250000,ativo:1})
+  const cargo=db.save('cargos',{nome:'Cargo Teste Mensal',salario_base_centavos:250000,ativo:1})
   const employee=db.save('funcionarios',{
     empresa_id:company.id,
     cargo_id:cargo.id,
