@@ -1,0 +1,44 @@
+name: Package Desktop Windows ZIP
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/desktop-windows-zip.yml'
+
+jobs:
+  package-windows-zip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve version
+        run: echo "DESKTOP_VERSION=$(node -p \"require('./apps/desktop/package.json').version\")" >> "$GITHUB_ENV"
+      - name: Download Windows installer from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          gh release download "desktop-v$DESKTOP_VERSION" --repo "${{ github.repository }}" --pattern "Fluxo-DRE-Setup-$DESKTOP_VERSION.exe" --dir out
+      - name: Create ZIP
+        run: |
+          cd out
+          zip -9 "Fluxo-DRE-Desktop-$DESKTOP_VERSION-Windows.zip" "Fluxo-DRE-Setup-$DESKTOP_VERSION.exe"
+          sha256sum "Fluxo-DRE-Desktop-$DESKTOP_VERSION-Windows.zip" | tee "Fluxo-DRE-Desktop-$DESKTOP_VERSION-Windows.zip.sha256"
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-Windows-ZIP
+          path: |
+            out/Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-Windows.zip
+            out/Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-Windows.zip.sha256
+          compression-level: 0
+          retention-days: 90
+      - name: Publish ZIP in GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "desktop-v$DESKTOP_VERSION" "out/Fluxo-DRE-Desktop-$DESKTOP_VERSION-Windows.zip" "out/Fluxo-DRE-Desktop-$DESKTOP_VERSION-Windows.zip.sha256" --repo "${{ github.repository }}" --clobber
