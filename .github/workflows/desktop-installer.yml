@@ -1,5 +1,8 @@
 name: Desktop Windows Installer
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   pull_request:
@@ -63,10 +66,3 @@ jobs:
           } else {
             gh release upload $tag $asset --repo "${{ github.repository }}" --clobber
           }
-
-        uses: actions/upload-artifact@v4
-        with:
-          name: Fluxo-DRE-Desktop-1.1.6-Windows
-          path: apps/desktop/release/Fluxo-DRE-Setup-1.1.6.exe
-          if-no-files-found: error
-          retention-days: 30
