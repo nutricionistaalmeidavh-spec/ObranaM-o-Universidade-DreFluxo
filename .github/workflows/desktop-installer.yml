@@ -37,7 +37,33 @@ jobs:
         run: npm run build:desktop
       - name: Generate NSIS installer
         run: npm --workspace apps/desktop run dist
+      - name: Resolve Desktop version
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/package.json | ConvertFrom-Json).version
+          "DESKTOP_VERSION=$version" >> $env:GITHUB_ENV
       - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-Windows
+          path: apps/desktop/release/Fluxo-DRE-Setup-${{ env.DESKTOP_VERSION }}.exe
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "desktop-v$env:DESKTOP_VERSION"
+          $asset = "apps/desktop/release/Fluxo-DRE-Setup-$env:DESKTOP_VERSION.exe"
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $asset --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Fluxo DRE Desktop v$env:DESKTOP_VERSION" --notes "Instalador Windows do Desktop MH validado pelo CI."
+          } else {
+            gh release upload $tag $asset --repo "${{ github.repository }}" --clobber
+          }
+
         uses: actions/upload-artifact@v4
         with:
           name: Fluxo-DRE-Desktop-1.1.6-Windows
