@@ -1,0 +1,74 @@
+name: Desktop macOS M1 Cross Build
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/desktop-macos-m1-cross.yml'
+
+jobs:
+  macos-m1:
+    runs-on: macos-14
+    timeout-minutes: 35
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Test Desktop before native cross rebuild
+        run: npm run test:desktop
+      - name: Build renderer
+        run: npm run build:desktop
+      - name: Rebuild native dependencies for Electron arm64
+        working-directory: apps/desktop
+        run: ../../node_modules/.bin/electron-builder install-app-deps --platform=darwin --arch=arm64
+      - name: Package Apple Silicon app bundle
+        working-directory: apps/desktop
+        run: ../../node_modules/.bin/electron-builder --mac dir --arm64 --publish never
+      - name: Ad-hoc sign and validate architectures
+        shell: bash
+        run: |
+          APP="apps/desktop/release/mac-arm64/Fluxo DRE.app"
+          test -d "$APP"
+          codesign --deep --force --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          file "$APP/Contents/MacOS/Fluxo DRE"
+          find "$APP" -name 'better_sqlite3.node' -print -exec file {} \;
+          file "$APP/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+      - name: Create DMG
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          APP="apps/desktop/release/mac-arm64/Fluxo DRE.app"
+          DMG="apps/desktop/release/Fluxo-DRE-${VERSION}-macOS-M1-arm64.dmg"
+          hdiutil create -volname "Fluxo DRE" -srcfolder "$APP" -ov -format UDZO "$DMG"
+          hdiutil verify "$DMG"
+          echo "DESKTOP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "DMG_PATH=$DMG" >> "$GITHUB_ENV"
+          shasum -a 256 "$DMG" | tee "${DMG}.sha256"
+      - name: Upload macOS M1 ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fluxo-DRE-Desktop-${{ env.DESKTOP_VERSION }}-macOS-M1
+          path: |
+            ${{ env.DMG_PATH }}
+            ${{ env.DMG_PATH }}.sha256
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish M1 DMG in GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="desktop-v$DESKTOP_VERSION"
+          gh release upload "$TAG" "$DMG_PATH" "$DMG_PATH.sha256" --repo "${{ github.repository }}" --clobber
