@@ -34,20 +34,11 @@ function benefitKey(value) {
   return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ')
 }
 function normalizeMhBenefits(benefits) {
-  const other=[]
-  let food=false, coffee=false
-  for(const item of benefits||[]) {
-    const key=benefitKey(item&&item.descricao)
-    if(key.includes('aliment')) { food=true; continue }
-    if(key.includes('cafe')) { coffee=true; continue }
-    if(item&&item.descricao) other.push({...item})
-  }
-  const fixed=[
+  void benefits
+  return [
     {descricao:'Vale café',valor_centavos:18000},
-    ...other,
     {descricao:'Vale-alimentação',valor_centavos:51000}
   ]
-  return fixed.sort((a,b)=>String(a.descricao).localeCompare(String(b.descricao),'pt-BR'))
 }
 function bodyOnly(html) {
   const match=String(html||'').match(/<body[^>]*>([\s\S]*?)<\/body>/i)
@@ -194,7 +185,7 @@ class TimeService {
 
   benefitRows(employee,competencia) {
     const sheet=this.db.db.prepare('SELECT id FROM folhas_pagamento WHERE empresa_id IS ? AND competencia=?').get(employee.empresa_id||null,competencia)
-    const rows=sheet?this.db.db.prepare("SELECT descricao,valor_centavos FROM folha_lancamentos WHERE folha_id=? AND funcionario_id=? AND natureza='credito' AND (tipo LIKE 'beneficio_%' OR lower(descricao) LIKE '%café%' OR lower(descricao) LIKE '%cafe%' OR lower(descricao) LIKE '%aliment%') ORDER BY descricao").all(sheet.id,employee.id):[]
+    const rows=sheet?this.db.db.prepare("SELECT descricao,valor_centavos FROM folha_lancamentos WHERE folha_id=? AND funcionario_id=? AND natureza='credito' AND (lower(descricao) LIKE '%café%' OR lower(descricao) LIKE '%cafe%' OR lower(descricao) LIKE '%aliment%') ORDER BY descricao").all(sheet.id,employee.id):[]
     return normalizeMhBenefits(rows)
   }
 
@@ -211,6 +202,8 @@ class TimeService {
   }
 
   async generateDocuments(payload) {
+    const pointSelected=payload.point!==false, receiptsSelected=payload.receipts!==false
+    if(!pointSelected&&!receiptsSelected) throw new Error('Selecione fichas de ponto e/ou recibos para gerar.')
     let data=this.get(payload)
     if(!data.marks.length) data=this.autoFill(payload)
     const company=data.employee.empresa_id?this.db.get('empresas',data.employee.empresa_id):null
@@ -222,15 +215,23 @@ class TimeService {
     const folders=this.fileService.employeeFolders(data.employee,company&&(company.nome_fantasia||company.razao_social))
     const parts=data.point.competencia.split('-'), monthlyFolder=path.join(folders.base,'Recibos',parts[0],parts[1]+' - '+MONTHS[Number(parts[1])-1])
     fs.mkdirSync(monthlyFolder,{recursive:true})
-    const stamp=Date.now(), pointName='Ficha de ponto - '+data.point.competencia+' - '+sanitizeName(data.employee.nome)+' - '+stamp+'.pdf'
-    const receiptName='Recibos de benefícios - '+data.point.competencia+' - '+sanitizeName(data.employee.nome)+' - '+stamp+'.pdf'
-    const pointPath=path.join(monthlyFolder,pointName), receiptPath=path.join(monthlyFolder,receiptName)
-    await this.printHtml(this.pointHtml(data,company,cargo),pointPath)
-    await this.printHtml(this.receiptHtml(data,company,cargo,benefits,payload.paymentDate),receiptPath)
-    const pointDoc=this.registerPdf(data.employee,'folha_ponto','Ficha de ponto - '+data.point.competencia,pointPath)
-    const receiptDoc=this.registerPdf(data.employee,'recibos_beneficios','Recibos de benefícios - '+data.point.competencia,receiptPath)
+    const stamp=Date.now(), result={folder:monthlyFolder}
+    if(pointSelected) {
+      const pointName='Ficha de ponto - '+data.point.competencia+' - '+sanitizeName(data.employee.nome)+' - '+stamp+'.pdf'
+      const pointPath=path.join(monthlyFolder,pointName)
+      await this.printHtml(this.pointHtml(data,company,cargo),pointPath)
+      const pointDoc=this.registerPdf(data.employee,'folha_ponto','Ficha de ponto - '+data.point.competencia,pointPath)
+      result.point={...pointDoc,path:pointPath}
+    }
+    if(receiptsSelected) {
+      const receiptName='Recibos de benefícios - '+data.point.competencia+' - '+sanitizeName(data.employee.nome)+' - '+stamp+'.pdf'
+      const receiptPath=path.join(monthlyFolder,receiptName)
+      await this.printHtml(this.receiptHtml(data,company,cargo,benefits,payload.paymentDate),receiptPath)
+      const receiptDoc=this.registerPdf(data.employee,'recibos_beneficios','Recibos de benefícios - '+data.point.competencia,receiptPath)
+      result.receipt={...receiptDoc,path:receiptPath}
+    }
     this.db.db.prepare("UPDATE pontos_mensais SET status='gerado',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(data.point.id)
-    return {folder:monthlyFolder,point:{...pointDoc,path:pointPath},receipt:{...receiptDoc,path:receiptPath}}
+    return result
   }
 
   async generateForAll(payload) {
@@ -239,7 +240,7 @@ class TimeService {
     const employees=this.db.db.prepare("SELECT id,nome FROM funcionarios WHERE deleted_at IS NULL AND status='ativo' ORDER BY nome COLLATE NOCASE").all()
     const results=[]
     for(const employee of employees) {
-      try { results.push({funcionario_id:employee.id,nome:employee.nome,ok:true,documents:await this.generateDocuments({funcionario_id:employee.id,competencia:payload.competencia,paymentDate:payload.paymentDate})}) }
+      try { results.push({funcionario_id:employee.id,nome:employee.nome,ok:true,documents:await this.generateDocuments({funcionario_id:employee.id,competencia:payload.competencia,paymentDate:payload.paymentDate,point:payload.point,receipts:payload.receipts})}) }
       catch(error) { results.push({funcionario_id:employee.id,nome:employee.nome,ok:false,error:error instanceof Error?error.message:String(error)}) }
     }
     return results
