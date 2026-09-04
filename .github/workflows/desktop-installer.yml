@@ -38,6 +38,16 @@ jobs:
         run: npm run test:desktop
       - name: Build Desktop
         run: npm run build:desktop
+      - name: Render RH admission PDF fixtures
+        working-directory: apps/desktop
+        run: npx electron electron/scripts/render-admission-fixtures.cjs
+      - name: Upload RH admission PDF fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: MH-Admission-Docs-v2-Fixtures
+          path: apps/desktop/release/rh-docs-fixtures
+          if-no-files-found: error
+          retention-days: 30
       - name: Generate NSIS installer
         run: npm --workspace apps/desktop run dist
       - name: Resolve Desktop version
