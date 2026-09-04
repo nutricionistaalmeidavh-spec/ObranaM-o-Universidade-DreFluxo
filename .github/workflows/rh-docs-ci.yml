@@ -20,5 +20,5 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
       - run: npm ci
-      - run: npm test -- electron/services/admission-documents.test.ts electron/services/mh-admission-templates.test.ts
+      - run: npm test -- electron/services/admission-documents.test.ts electron/services/admission-policy.test.ts electron/services/mh-admission-templates.test.ts electron/services/mh-admission-golden.test.ts
       - run: npm run build
