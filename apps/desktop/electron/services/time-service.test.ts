@@ -5,8 +5,9 @@ import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const require=createRequire(import.meta.url)
+const {PDFDocument}=require('pdf-lib')
 const {DatabaseService}=require('./database.cjs')
-const {TimeService}=require('./time-service.cjs')
+const {TimeService,mergeGeneratedPdfs}=require('./time-service.cjs')
 const {parseEmployeeIdentity}=require('./import-service.cjs')
 const created:Array<{dir:string,db:any}>=[]
 
@@ -33,6 +34,10 @@ function setup(){
   return {dir,db,company,cargo,employee,base,time}
 }
 
+async function onePagePdf(destination:string,width:number){
+  const pdf=await PDFDocument.create();pdf.addPage([width,300]);fs.writeFileSync(destination,await pdf.save())
+}
+
 afterEach(()=>{for(const item of created.splice(0)){item.db.close();fs.rmSync(item.dir,{recursive:true,force:true})}})
 
 describe('folha de ponto mensal',()=>{
@@ -55,24 +60,8 @@ describe('folha de ponto mensal',()=>{
     const {db,employee,base,time}=setup()
     time.autoFill({funcionario_id:employee.id,competencia:'2026-08'})
     const folha=db.save('folhas_pagamento',{empresa_id:employee.empresa_id,competencia:'2026-08',status:'aberta'})
-    db.save('folha_lancamentos',{
-      folha_id:folha.id,
-      funcionario_id:employee.id,
-      tipo:'beneficio_cafe',
-      descricao:'Café',
-      natureza:'credito',
-      quinzena:1,
-      valor_centavos:18000
-    })
-    db.save('folha_lancamentos',{
-      folha_id:folha.id,
-      funcionario_id:employee.id,
-      tipo:'beneficio_vale_alimentacao',
-      descricao:'Vale-alimentação',
-      natureza:'credito',
-      quinzena:1,
-      valor_centavos:45000
-    })
+    db.save('folha_lancamentos',{folha_id:folha.id,funcionario_id:employee.id,tipo:'beneficio_cafe',descricao:'Café',natureza:'credito',quinzena:1,valor_centavos:18000})
+    db.save('folha_lancamentos',{folha_id:folha.id,funcionario_id:employee.id,tipo:'beneficio_vale_alimentacao',descricao:'Vale-alimentação',natureza:'credito',quinzena:1,valor_centavos:45000})
 
     const legacy=path.join(base,'Mensal','2026','08 - agosto','Folha de ponto','arquivo-antigo.pdf')
     fs.mkdirSync(path.dirname(legacy),{recursive:true})
@@ -96,8 +85,41 @@ describe('folha de ponto mensal',()=>{
       expect(html).toContain('123.456.789-01')
       expect(html).toContain('Empresa Teste LTDA')
       expect(html).toContain('50.733.669/0001-60')
+      expect(html).toContain('Cargo Teste Mensal')
     }
     expect(receipt).toContain('Café')
     expect(receipt).toContain('Vale-alimentação')
+  })
+
+  it('bloqueia documentos mensais quando o funcionário não tem cargo/função',async()=>{
+    const {db,employee,time}=setup()
+    db.db.prepare('UPDATE funcionarios SET cargo_id=NULL WHERE id=?').run(employee.id)
+    time.printHtml=async()=>{}
+    await expect(time.generateDocuments({funcionario_id:employee.id,competencia:'2026-08',paymentDate:'2026-08-15'})).rejects.toThrow('cargo/função')
+  })
+
+  it('monta lote de impressão na ordem funcionário: ficha, recibos, próximo funcionário',async()=>{
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fluxo-print-batch-'))
+    try{
+      const files={aPoint:path.join(dir,'a-point.pdf'),aReceipt:path.join(dir,'a-receipt.pdf'),bPoint:path.join(dir,'b-point.pdf'),bReceipt:path.join(dir,'b-receipt.pdf')}
+      await onePagePdf(files.aPoint,101);await onePagePdf(files.aReceipt,102);await onePagePdf(files.bPoint,201);await onePagePdf(files.bReceipt,202)
+      const bytes=await mergeGeneratedPdfs([
+        {ok:true,nome:'A',point:{path:files.aPoint},receipt:{path:files.aReceipt}},
+        {ok:true,nome:'B',point:{path:files.bPoint},receipt:{path:files.bReceipt}}
+      ],{point:true,receipts:true})
+      const merged=await PDFDocument.load(bytes)
+      expect(merged.getPages().map((page:any)=>Math.round(page.getWidth()))).toEqual([101,102,201,202])
+    }finally{fs.rmSync(dir,{recursive:true,force:true})}
+  })
+
+  it('permite imprimir somente um tipo de documento',async()=>{
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'fluxo-print-filter-'))
+    try{
+      const point=path.join(dir,'point.pdf'),receipt=path.join(dir,'receipt.pdf')
+      await onePagePdf(point,111);await onePagePdf(receipt,112)
+      const bytes=await mergeGeneratedPdfs([{ok:true,nome:'A',point:{path:point},receipt:{path:receipt}}],{point:false,receipts:true})
+      const merged=await PDFDocument.load(bytes)
+      expect(merged.getPages().map((page:any)=>Math.round(page.getWidth()))).toEqual([112])
+    }finally{fs.rmSync(dir,{recursive:true,force:true})}
   })
 })
