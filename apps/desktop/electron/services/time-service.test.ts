@@ -108,6 +108,16 @@ describe('folha de ponto mensal',()=>{
     ])
   })
 
+  it('gera somente os tipos selecionados sem duplicar o outro documento',async()=>{
+    const {employee,time}=setup()
+    time.autoFill({funcionario_id:employee.id,competencia:'2026-08'})
+    time.printHtml=async(html:string,destination:string)=>{fs.mkdirSync(path.dirname(destination),{recursive:true});fs.writeFileSync(destination,html,'utf8')}
+    const result=await time.generateDocuments({funcionario_id:employee.id,competencia:'2026-08',paymentDate:'2026-08-15',point:false,receipts:true})
+    expect(result.point).toBeUndefined()
+    expect(result.receipt?.path).toBeTruthy()
+    expect(fs.existsSync(result.receipt.path)).toBe(true)
+  })
+
   it('bloqueia documentos mensais quando o funcionário não tem cargo/função',async()=>{
     const {db,employee,time}=setup()
     db.db.prepare('UPDATE funcionarios SET cargo_id=NULL WHERE id=?').run(employee.id)
