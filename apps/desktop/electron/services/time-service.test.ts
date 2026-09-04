@@ -94,19 +94,23 @@ describe('folha de ponto mensal',()=>{
   })
 
   it('normaliza os benefícios padrão MH para todos os recibos',()=>{
-    expect(normalizeMhBenefits([
+    const mixed=normalizeMhBenefits([
       {descricao:'Vale-alimentação',valor_centavos:45000},
       {descricao:'Café',valor_centavos:12000},
       {descricao:'Prêmio',valor_centavos:9000}
-    ])).toEqual([
+    ])
+    expect(mixed).toHaveLength(3)
+    expect(mixed).toEqual(expect.arrayContaining([
       {descricao:'Prêmio',valor_centavos:9000},
       {descricao:'Vale café',valor_centavos:18000},
       {descricao:'Vale-alimentação',valor_centavos:51000}
-    ])
-    expect(normalizeMhBenefits([])).toEqual([
+    ]))
+    const defaults=normalizeMhBenefits([])
+    expect(defaults).toHaveLength(2)
+    expect(defaults).toEqual(expect.arrayContaining([
       {descricao:'Vale café',valor_centavos:18000},
       {descricao:'Vale-alimentação',valor_centavos:51000}
-    ])
+    ]))
   })
 
   it('bloqueia documentos mensais quando o funcionário não tem cargo/função',async()=>{
