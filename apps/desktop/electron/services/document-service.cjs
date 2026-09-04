@@ -34,12 +34,11 @@ function readLocalTemplate(filePath) {
   return {nome:path.basename(resolved,extension),conteudo_html:extension==='.txt'?`<pre>${esc(source)}</pre>`:sanitizeTemplateHtml(source),arquivo_origem:resolved}
 }
 function admissionFolders(fileService, employee, companyName) {
-  const legacy = fileService.employeeFolders(employee, companyName)
   const identity = sanitizeName(employee.cpf || employee.id)
   const date = sanitizeName(employee.admissao || new Date().toISOString().slice(0,10))
   const base = path.join(fileService.documentsDir, sanitizeName(companyName || 'Empresa'), 'Funcionários', identity, sanitizeName(employee.nome), 'Admissão', date)
-  const folders = { base, unsigned:path.join(base,'Não assinados'), signed:path.join(base,'Assinados'), general:legacy.general }
-  for (const folder of [base, folders.unsigned, folders.signed]) fs.mkdirSync(folder,{recursive:true})
+  const folders = { base, unsigned:path.join(base,'Não assinados'), signed:path.join(base,'Assinados'), general:path.join(base,'Documentação Geral') }
+  for (const folder of Object.values(folders)) fs.mkdirSync(folder,{recursive:true})
   return folders
 }
 
@@ -52,6 +51,12 @@ class DocumentService {
   async chooseLocalTemplate(){if(!this.dialog) throw new Error('Seleção de arquivos indisponível.');const result=await this.dialog.showOpenDialog({title:'Selecionar modelo local',properties:['openFile'],filters:[{name:'Modelos HTML',extensions:['html','htm','txt']}]});if(result.canceled||!result.filePaths[0])return null;return readLocalTemplate(result.filePaths[0])}
   setDefaultTemplate({chave,modelo_id}){if(!DOCS.some(doc=>doc.key===chave)) throw new Error('Tipo de documento inválido.');if(!String(modelo_id).startsWith('padrao:')){const custom=this.db.get('modelos_documento_rh',Number(modelo_id));if(!custom||custom.chave!==chave||!custom.ativo) throw new Error('Selecione um modelo ativo compatível com o documento.')}this.db.db.prepare("INSERT INTO configuracoes(chave,valor,updated_at) VALUES (?,?,CURRENT_TIMESTAMP) ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor,updated_at=CURRENT_TIMESTAMP").run(`modelo_rh:${chave}`,String(modelo_id));return true}
   latestEsocial(employeeId){const row=this.db.db.prepare("SELECT d.*,a.caminho FROM documentos d JOIN arquivos a ON a.id=d.arquivo_id WHERE d.funcionario_id=? AND lower(d.categoria)='esocial' AND d.deleted_at IS NULL ORDER BY d.id DESC LIMIT 1").get(employeeId);return row&&row.caminho&&path.extname(row.caminho).toLowerCase()==='.pdf'&&fs.existsSync(row.caminho)?row:null}
+  employeeEpis(employeeId, cargoId) {
+    const rows=this.db.db.prepare('SELECT fe.*,e.nome,e.ca FROM funcionario_epis fe JOIN epis e ON e.id=fe.epi_id WHERE fe.funcionario_id=? AND fe.id IN (SELECT MAX(id) FROM funcionario_epis WHERE funcionario_id=? GROUP BY epi_id) ORDER BY fe.data_entrega,e.id').all(employeeId,employeeId)
+    const kitRows=cargoId?this.db.db.prepare('SELECT epi_id,quantidade_texto FROM cargo_epi_kits WHERE cargo_id=? AND ativo=1').all(cargoId):[]
+    const quantities=new Map(kitRows.map(item=>[Number(item.epi_id),item.quantidade_texto]))
+    return rows.map(item=>({...item,quantidade:quantities.get(Number(item.epi_id))??item.quantidade}))
+  }
   saveGeneratedFile(destination, filename, employee, doc, html, selectedModel) {
     const stat=fs.statSync(destination), existingFile=this.db.db.prepare('SELECT * FROM arquivos WHERE caminho=?').get(destination)
     const file=this.db.save('arquivos',{...(existingFile||{}),nome_original:filename,nome_armazenado:filename,caminho:destination,tamanho:stat.size,extensao:'.pdf',mime_type:'application/pdf',hash:sha256(destination),origem:'gerado'})
@@ -68,7 +73,7 @@ class DocumentService {
     const plan=buildAdmissionPlan(employee,includeCarta).filter(doc=>!selected.length||selected.includes(doc.key))
     const validation=validateAdmissionDocuments(employee,plan.map(doc=>doc.key))
     if(!validation.ok){const details=Object.entries(validation.byDocument).map(([key,fields])=>`${key}: ${fields.join(', ')}`).join(' | ');const error=new Error(`Existem campos obrigatórios pendentes antes de gerar os documentos: ${details}`);error.details=validation.byDocument;throw error}
-    const epis=this.db.db.prepare('SELECT fe.*,e.nome,e.ca FROM funcionario_epis fe JOIN epis e ON e.id=fe.epi_id WHERE fe.funcionario_id=? ORDER BY fe.data_entrega').all(employee.id)
+    const epis=this.employeeEpis(employee.id,cargo?.id)
     const folders=admissionFolders(this.fileService,employee,company?.nome_fantasia||company?.razao_social),generated=[]
     for(let index=0;index<plan.length;index++){
       const doc=plan[index],preference=this.db.db.prepare('SELECT valor FROM configuracoes WHERE chave=?').get(`modelo_rh:${doc.key}`),selectedModelId=modelos[doc.key]||preference?.valor||`padrao:${doc.key}`,selectedModel=selectedModelId&&!String(selectedModelId).startsWith('padrao:')?this.db.get('modelos_documento_rh',Number(selectedModelId)):null
