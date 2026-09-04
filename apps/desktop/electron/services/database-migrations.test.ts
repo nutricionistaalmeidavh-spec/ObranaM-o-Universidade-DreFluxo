@@ -26,6 +26,19 @@ function copyMigrationsThrough(destination: string, maxVersion: number) {
   }
 }
 
+async function waitForPreMigrationBackup(dataDir: string) {
+  const backupDir = path.join(dataDir, 'backups', 'pre-migration')
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const files = fs.existsSync(backupDir) ? fs.readdirSync(backupDir).filter(file => file.endsWith('.sqlite')) : []
+    if (files.some(file => fs.statSync(path.join(backupDir, file)).size > 0)) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      return
+    }
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error('Pre-migration backup was not produced in time.')
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true })
 })
@@ -44,7 +57,7 @@ describe('desktop database migrations', () => {
     } finally { db.close() }
   })
 
-  it('upgrades an existing v13 database without losing existing employee rows', () => {
+  it('upgrades an existing v13 database without losing existing employee rows', async () => {
     const dataDir = tempDir('upgrade-data')
     const oldMigrations = tempDir('upgrade-migrations')
     copyMigrationsThrough(oldMigrations, 13)
@@ -61,6 +74,7 @@ describe('desktop database migrations', () => {
       expect(after.get('funcionarios', employee.id)?.nome).toBe('FUNCIONARIO EXISTENTE')
       expect(after.get('funcionarios', employee.id)?.salario_centavos).toBe(230296)
       expect(after.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cargo_epi_kits'").get()).toBeTruthy()
+      await waitForPreMigrationBackup(dataDir)
     } finally { after.close() }
   })
 })
