@@ -1,0 +1,24 @@
+name: RH Docs CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/rh-docs-ci.yml'
+
+jobs:
+  desktop-rh:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      - run: npm test -- electron/services/database-migrations.test.ts electron/services/database-safe.test.ts electron/services/admission-documents.test.ts electron/services/admission-policy.test.ts electron/services/mh-admission-templates.test.ts electron/services/mh-admission-golden.test.ts
+      - run: npm run build
