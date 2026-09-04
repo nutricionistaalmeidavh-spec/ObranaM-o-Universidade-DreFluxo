@@ -87,7 +87,7 @@ describe('folha de ponto mensal',()=>{
       expect(html).toContain('50.733.669/0001-60')
       expect(html).toContain('Cargo Teste Mensal')
     }
-    expect(receipt).toContain('Café')
+    expect(receipt).toContain('Vale café')
     expect(receipt).toContain('R$ 180,00')
     expect(receipt).toContain('Vale-alimentação')
     expect(receipt).toContain('R$ 510,00')
@@ -99,12 +99,12 @@ describe('folha de ponto mensal',()=>{
       {descricao:'Café',valor_centavos:12000},
       {descricao:'Prêmio',valor_centavos:9000}
     ])).toEqual([
-      {descricao:'Café',valor_centavos:18000},
       {descricao:'Prêmio',valor_centavos:9000},
+      {descricao:'Vale café',valor_centavos:18000},
       {descricao:'Vale-alimentação',valor_centavos:51000}
     ])
     expect(normalizeMhBenefits([])).toEqual([
-      {descricao:'Café',valor_centavos:18000},
+      {descricao:'Vale café',valor_centavos:18000},
       {descricao:'Vale-alimentação',valor_centavos:51000}
     ])
   })
