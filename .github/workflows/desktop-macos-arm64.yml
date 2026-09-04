@@ -5,6 +5,14 @@ permissions:
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '.nvmrc'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop-macos-arm64.yml'
   push:
     branches: [main]
     paths:
