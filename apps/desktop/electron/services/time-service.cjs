@@ -34,20 +34,12 @@ function benefitKey(value) {
   return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ')
 }
 function normalizeMhBenefits(benefits) {
-  const other=[]
-  let food=false, coffee=false
-  for(const item of benefits||[]) {
-    const key=benefitKey(item&&item.descricao)
-    if(key.includes('aliment')) { food=true; continue }
-    if(key.includes('cafe')) { coffee=true; continue }
-    if(item&&item.descricao) other.push({...item})
-  }
-  const fixed=[
+  const keys=(benefits||[]).map((item)=>benefitKey(item&&item.descricao))
+  void keys
+  return [
     {descricao:'Vale café',valor_centavos:18000},
-    ...other,
     {descricao:'Vale-alimentação',valor_centavos:51000}
   ]
-  return fixed.sort((a,b)=>String(a.descricao).localeCompare(String(b.descricao),'pt-BR'))
 }
 function bodyOnly(html) {
   const match=String(html||'').match(/<body[^>]*>([\s\S]*?)<\/body>/i)
@@ -194,7 +186,7 @@ class TimeService {
 
   benefitRows(employee,competencia) {
     const sheet=this.db.db.prepare('SELECT id FROM folhas_pagamento WHERE empresa_id IS ? AND competencia=?').get(employee.empresa_id||null,competencia)
-    const rows=sheet?this.db.db.prepare("SELECT descricao,valor_centavos FROM folha_lancamentos WHERE folha_id=? AND funcionario_id=? AND natureza='credito' AND (tipo LIKE 'beneficio_%' OR lower(descricao) LIKE '%café%' OR lower(descricao) LIKE '%cafe%' OR lower(descricao) LIKE '%aliment%') ORDER BY descricao").all(sheet.id,employee.id):[]
+    const rows=sheet?this.db.db.prepare("SELECT descricao,valor_centavos FROM folha_lancamentos WHERE folha_id=? AND funcionario_id=? AND natureza='credito' AND (lower(descricao) LIKE '%café%' OR lower(descricao) LIKE '%cafe%' OR lower(descricao) LIKE '%aliment%') ORDER BY descricao").all(sheet.id,employee.id):[]
     return normalizeMhBenefits(rows)
   }
 
