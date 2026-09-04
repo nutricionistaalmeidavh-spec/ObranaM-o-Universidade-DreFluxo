@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const require=createRequire(import.meta.url)
 const {PDFDocument}=require('pdf-lib')
 const {DatabaseService}=require('./database.cjs')
-const {TimeService,mergeGeneratedPdfs}=require('./time-service.cjs')
+const {TimeService,mergeGeneratedPdfs,normalizeMhBenefits,buildPrintBatchHtml}=require('./time-service.cjs')
 const {parseEmployeeIdentity}=require('./import-service.cjs')
 const created:Array<{dir:string,db:any}>=[]
 
@@ -88,7 +88,25 @@ describe('folha de ponto mensal',()=>{
       expect(html).toContain('Cargo Teste Mensal')
     }
     expect(receipt).toContain('Café')
+    expect(receipt).toContain('R$ 180,00')
     expect(receipt).toContain('Vale-alimentação')
+    expect(receipt).toContain('R$ 510,00')
+  })
+
+  it('normaliza os benefícios padrão MH para todos os recibos',()=>{
+    expect(normalizeMhBenefits([
+      {descricao:'Vale-alimentação',valor_centavos:45000},
+      {descricao:'Café',valor_centavos:12000},
+      {descricao:'Prêmio',valor_centavos:9000}
+    ])).toEqual([
+      {descricao:'Café',valor_centavos:18000},
+      {descricao:'Prêmio',valor_centavos:9000},
+      {descricao:'Vale-alimentação',valor_centavos:51000}
+    ])
+    expect(normalizeMhBenefits([])).toEqual([
+      {descricao:'Café',valor_centavos:18000},
+      {descricao:'Vale-alimentação',valor_centavos:51000}
+    ])
   })
 
   it('bloqueia documentos mensais quando o funcionário não tem cargo/função',async()=>{
@@ -121,5 +139,20 @@ describe('folha de ponto mensal',()=>{
       const merged=await PDFDocument.load(bytes)
       expect(merged.getPages().map((page:any)=>Math.round(page.getWidth()))).toEqual([112])
     }finally{fs.rmSync(dir,{recursive:true,force:true})}
+  })
+
+  it('monta HTML imprimível real em vez de mandar o visualizador PDF oculto para a impressora',()=>{
+    const html=buildPrintBatchHtml([
+      {ok:true,nome:'A',pointHtml:'<div>FICHA A</div>',receiptHtml:'<div>RECIBOS A</div>'},
+      {ok:true,nome:'B',pointHtml:'<div>FICHA B</div>',receiptHtml:'<div>RECIBOS B</div>'}
+    ],{point:true,receipts:true})
+    expect(html).toContain('FICHA A')
+    expect(html).toContain('RECIBOS A')
+    expect(html).toContain('FICHA B')
+    expect(html).toContain('RECIBOS B')
+    expect(html.indexOf('FICHA A')).toBeLessThan(html.indexOf('RECIBOS A'))
+    expect(html.indexOf('RECIBOS A')).toBeLessThan(html.indexOf('FICHA B'))
+    expect(html).not.toContain('<embed')
+    expect(html).not.toContain('<iframe')
   })
 })
