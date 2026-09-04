@@ -8,7 +8,7 @@ const { sanitizeName, sha256 } = require('./file-service.cjs')
 const { formatCpf, formatCnpj, employeeIdentityIssues } = require('./employee-identity.cjs')
 
 const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']
-const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[m]))
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))
 const brl = (v) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((Number(v)||0)/100)
 function validCompetence(v) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(v||''))) throw new Error('Competência inválida.')
@@ -155,6 +155,7 @@ class TimeService {
   }
 
   async generateForAll(payload) {
+    if(payload&&payload.print) return this.printForAll({...payload,print:false})
     const employees=this.db.db.prepare("SELECT id,nome FROM funcionarios WHERE deleted_at IS NULL AND status='ativo' ORDER BY nome").all()
     const results=[]
     for(const employee of employees) {
@@ -167,7 +168,7 @@ class TimeService {
   async preparePrintBatch(payload) {
     const selection={point:Boolean(payload.point),receipts:Boolean(payload.receipts)}
     if(!selection.point&&!selection.receipts) throw new Error('Selecione fichas de ponto e/ou recibos para imprimir.')
-    const results=await this.generateForAll(payload)
+    const results=await this.generateForAll({...payload,print:false})
     const successful=results.filter((item)=>item.ok)
     if(!successful.length) return {path:null,results,employees:0,documents:0}
     const bytes=await mergeGeneratedPdfs(successful,selection)
