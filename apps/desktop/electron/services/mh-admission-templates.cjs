@@ -1,9 +1,23 @@
-const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]))
-const dateBR = (iso) => iso ? String(iso).split('-').reverse().join('/') : '____/____/________'
-const money = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(cents) || 0) / 100)
-const time = (value, fallback) => String(value || fallback).slice(0, 5)
-const address = (e) => e.endereco || [e.endereco_logradouro, e.endereco_numero, e.endereco_complemento, e.endereco_bairro, e.endereco_cidade, e.endereco_uf].filter(Boolean).join(', ')
-const companyName = (c) => c?.razao_social || c?.nome_fantasia || 'MH HIDRAULICA RP LTDA'
+const { contractTemplate } = require('./mh-templates/contract.cjs')
+const { registrationTemplate } = require('./mh-templates/registration.cjs')
+const { serviceOrderTemplate } = require('./mh-templates/service-order.cjs')
+const { transitTemplate } = require('./mh-templates/transit.cjs')
+const { epiTemplate } = require('./mh-templates/epi.cjs')
+const { unionLetterTemplate } = require('./mh-templates/union-letter.cjs')
 
-function under1000(n) {
-  const a=['','UM','DOIS','TRÊS','QUATRO','CINCO','SEIS','SETE','OITO','NOVE','DEZ','ONZE','DOZE','TREZE','QUATORZE','QUINZE','DEZESSEIS','DEZESSETE
+const templates = {
+  contrato_experiencia: contractTemplate,
+  ficha_registro: registrationTemplate,
+  ordem_servico: serviceOrderTemplate,
+  vale_transporte: transitTemplate,
+  ficha_epi: epiTemplate,
+  carta_sindical: unionLetterTemplate
+}
+
+function renderMhAdmissionTemplate(key, employee, company, epis = [], work = null) {
+  const fn = templates[key]
+  if (!fn) throw new Error(`Modelo MH não encontrado: ${key}`)
+  return fn({ employee, company, epis, work })
+}
+
+module.exports = { renderMhAdmissionTemplate }
