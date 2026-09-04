@@ -41,16 +41,13 @@ const samples = [
   ['encanador', employee('Encanador','724110',266475,'22222222222')]
 ]
 
-async function printHtml(html, destination) {
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
-  try {
-    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'none' } })
-    fs.writeFileSync(destination, pdf)
-  } finally { win.destroy() }
+async function printHtml(win, html, destination) {
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'none' } })
+  fs.writeFileSync(destination, pdf)
 }
 
-async function renderSample(slug, employeeData, root) {
+async function renderSample(win, slug, employeeData, root) {
   const dir = path.join(root, slug)
   fs.mkdirSync(dir, { recursive: true })
   const dossier = await PDFDocument.create()
@@ -58,7 +55,7 @@ async function renderSample(slug, employeeData, root) {
     const [key, title] = DOCS[i]
     const html = renderMhAdmissionTemplate(key, employeeData, company, [], { nome: 'OBRA TESTE' })
     const file = path.join(dir, `${String(i + 1).padStart(2,'0')} - ${title}.pdf`)
-    await printHtml(html, file)
+    await printHtml(win, html, file)
     const source = await PDFDocument.load(fs.readFileSync(file))
     const pages = await dossier.copyPages(source, source.getPageIndices())
     pages.forEach(page => dossier.addPage(page))
@@ -70,12 +67,15 @@ app.whenReady().then(async () => {
   const output = path.resolve(process.cwd(), 'release', 'rh-docs-fixtures')
   fs.rmSync(output, { recursive: true, force: true })
   fs.mkdirSync(output, { recursive: true })
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
   try {
-    for (const [slug, data] of samples) await renderSample(slug, data, output)
+    for (const [slug, data] of samples) await renderSample(win, slug, data, output)
     console.log(`RH admission fixtures generated at ${output}`)
+    win.destroy()
     app.exit(0)
   } catch (error) {
     console.error(error)
+    if (!win.isDestroyed()) win.destroy()
     app.exit(1)
   }
 })
