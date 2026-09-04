@@ -43,6 +43,22 @@ const groups = [
   ] },
 ]
 
+const groupLinkStyle = {
+  height: 'auto',
+  display: 'block',
+  padding: '0 10px 5px',
+  margin: 0,
+  border: 0,
+  borderRadius: 0,
+  background: 'transparent',
+  boxShadow: 'none',
+  color: '#59677a',
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '.11em',
+  textTransform: 'uppercase' as const,
+}
+
 export default function CommandCenterShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -54,7 +70,7 @@ export default function CommandCenterShell({ children }: { children: ReactNode }
       </div>
       <nav>{groups.map((group) => <div className="nav-group" key={group.label}>
         {group.to
-          ? <NavLink to={group.to} className="nav-label nav-label-link" title={collapsed ? group.label : undefined}>{group.label}</NavLink>
+          ? <NavLink to={group.to} className="nav-label nav-label-link" style={groupLinkStyle} title={collapsed ? group.label : undefined}>{group.label}</NavLink>
           : <span className="nav-label">{group.label}</span>}
         {group.items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'} title={collapsed ? label : undefined}>
           <Icon size={18}/><span>{label}</span>
