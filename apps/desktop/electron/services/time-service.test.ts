@@ -62,6 +62,7 @@ describe('folha de ponto mensal',()=>{
     const folha=db.save('folhas_pagamento',{empresa_id:employee.empresa_id,competencia:'2026-08',status:'aberta'})
     db.save('folha_lancamentos',{folha_id:folha.id,funcionario_id:employee.id,tipo:'beneficio_cafe',descricao:'Café',natureza:'credito',quinzena:1,valor_centavos:18000})
     db.save('folha_lancamentos',{folha_id:folha.id,funcionario_id:employee.id,tipo:'beneficio_vale_alimentacao',descricao:'Vale-alimentação',natureza:'credito',quinzena:1,valor_centavos:45000})
+    db.save('folha_lancamentos',{folha_id:folha.id,funcionario_id:employee.id,tipo:'beneficio_vale_transporte',descricao:'Vale-transporte',natureza:'credito',quinzena:1,valor_centavos:22000})
 
     const legacy=path.join(base,'Mensal','2026','08 - agosto','Folha de ponto','arquivo-antigo.pdf')
     fs.mkdirSync(path.dirname(legacy),{recursive:true})
@@ -91,26 +92,20 @@ describe('folha de ponto mensal',()=>{
     expect(receipt).toContain('R$ 180,00')
     expect(receipt).toContain('Vale-alimentação')
     expect(receipt).toContain('R$ 510,00')
+    expect(receipt).not.toContain('Vale-transporte')
   })
 
-  it('normaliza os benefícios padrão MH para todos os recibos',()=>{
-    const mixed=normalizeMhBenefits([
+  it('mantém alimentação e café juntos no recibo e exclui vale-transporte do fluxo de assinatura',()=>{
+    const benefits=normalizeMhBenefits([
       {descricao:'Vale-alimentação',valor_centavos:45000},
       {descricao:'Café',valor_centavos:12000},
+      {descricao:'Vale-transporte',valor_centavos:22000},
       {descricao:'Prêmio',valor_centavos:9000}
     ])
-    expect(mixed).toHaveLength(3)
-    expect(mixed).toEqual(expect.arrayContaining([
-      {descricao:'Prêmio',valor_centavos:9000},
+    expect(benefits).toEqual([
       {descricao:'Vale café',valor_centavos:18000},
       {descricao:'Vale-alimentação',valor_centavos:51000}
-    ]))
-    const defaults=normalizeMhBenefits([])
-    expect(defaults).toHaveLength(2)
-    expect(defaults).toEqual(expect.arrayContaining([
-      {descricao:'Vale café',valor_centavos:18000},
-      {descricao:'Vale-alimentação',valor_centavos:51000}
-    ]))
+    ])
   })
 
   it('bloqueia documentos mensais quando o funcionário não tem cargo/função',async()=>{
