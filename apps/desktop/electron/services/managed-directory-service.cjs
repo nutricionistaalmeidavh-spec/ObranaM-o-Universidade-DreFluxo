@@ -1,6 +1,17 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+const DEFAULT_MAX_PREVIEW_BYTES = 12 * 1024 * 1024
+const PREVIEW_TYPES = new Map([
+  ['.pdf', { previewKind: 'pdf', mimeType: 'application/pdf' }],
+  ['.png', { previewKind: 'image', mimeType: 'image/png' }],
+  ['.jpg', { previewKind: 'image', mimeType: 'image/jpeg' }],
+  ['.jpeg', { previewKind: 'image', mimeType: 'image/jpeg' }],
+  ['.gif', { previewKind: 'image', mimeType: 'image/gif' }],
+  ['.webp', { previewKind: 'image', mimeType: 'image/webp' }],
+  ['.bmp', { previewKind: 'image', mimeType: 'image/bmp' }]
+])
+
 function portablePath(value) {
   return String(value || '').split(path.sep).join('/')
 }
@@ -10,9 +21,10 @@ function escapesRoot(relative) {
 }
 
 class ManagedDirectoryService {
-  constructor({ roots, shell }) {
+  constructor({ roots, shell, maxPreviewBytes } = {}) {
     this.roots = roots || {}
     this.shell = shell
+    this.maxPreviewBytes = Number.isFinite(maxPreviewBytes) && Number(maxPreviewBytes) > 0 ? Number(maxPreviewBytes) : DEFAULT_MAX_PREVIEW_BYTES
   }
 
   rootFor(rootId) {
@@ -82,6 +94,40 @@ class ManagedDirectoryService {
     }
   }
 
+  preview({ rootId, relativePath } = {}) {
+    const resolved = this.resolve(rootId, relativePath)
+    const linkStat = fs.lstatSync(resolved.target)
+    if (linkStat.isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser visualizados por este explorador.')
+    if (!resolved.stat.isFile()) throw new Error('Somente arquivos podem ser visualizados.')
+
+    const extension = path.extname(resolved.target).toLowerCase()
+    const previewType = PREVIEW_TYPES.get(extension)
+    const base = {
+      rootId: String(rootId),
+      name: path.basename(resolved.target),
+      relativePath: portablePath(resolved.relativeNative),
+      extension,
+      size: resolved.stat.size,
+      modifiedAt: resolved.stat.mtime.toISOString(),
+      previewKind: previewType?.previewKind || 'unsupported',
+      mimeType: previewType?.mimeType || null,
+      dataUrl: null,
+      previewBlockedReason: previewType ? null : 'type'
+    }
+
+    if (!previewType) return base
+    if (resolved.stat.size > this.maxPreviewBytes) return { ...base, previewKind: 'unsupported', previewBlockedReason: 'size' }
+
+    const bytes = fs.readFileSync(resolved.target)
+    return {
+      ...base,
+      previewKind: previewType.previewKind,
+      mimeType: previewType.mimeType,
+      dataUrl: `data:${previewType.mimeType};base64,${bytes.toString('base64')}`,
+      previewBlockedReason: null
+    }
+  }
+
   async open({ rootId, relativePath = '' } = {}) {
     const resolved = this.resolve(rootId, relativePath)
     if (fs.lstatSync(resolved.target).isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser abertos por este explorador.')
@@ -90,4 +136,4 @@ class ManagedDirectoryService {
   }
 }
 
-module.exports = { ManagedDirectoryService, portablePath }
+module.exports = { ManagedDirectoryService, portablePath, DEFAULT_MAX_PREVIEW_BYTES }
