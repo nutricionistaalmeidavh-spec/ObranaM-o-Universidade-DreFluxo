@@ -18,8 +18,11 @@ class OnlineService {
   }
 
   readConfig() {
-    try { return JSON.parse(fs.readFileSync(this.configPath, 'utf8')) }
-    catch { return {} }
+    try {
+      return JSON.parse(fs.readFileSync(this.configPath, 'utf8'))
+    } catch {
+      return {}
+    }
   }
 
   writeConfig(next) {
@@ -54,14 +57,24 @@ class OnlineService {
     if (!cfg.tokenValue) return ''
     try {
       const data = Buffer.from(cfg.tokenValue, 'base64')
-      if (cfg.tokenEncoding === 'safeStorage' && this.safeStorage?.isEncryptionAvailable?.()) return this.safeStorage.decryptString(data)
+      if (cfg.tokenEncoding === 'safeStorage' && this.safeStorage?.isEncryptionAvailable?.()) {
+        return this.safeStorage.decryptString(data)
+      }
       return data.toString('utf8')
-    } catch { return '' }
+    } catch {
+      return ''
+    }
   }
 
   state() {
     const cfg = this.readConfig()
-    return { baseUrl: this.baseUrl, installationId: this.installationId(), linked: !!this.deviceToken(), linkedAt: cfg.linkedAt || null, pending: cfg.pending ? { expiresAt: cfg.pending.expiresAt || null } : null }
+    return {
+      baseUrl: this.baseUrl,
+      installationId: this.installationId(),
+      linked: !!this.deviceToken(),
+      linkedAt: cfg.linkedAt || null,
+      pending: cfg.pending ? { expiresAt: cfg.pending.expiresAt || null } : null
+    }
   }
 
   async request(route, payload, timeoutMs = 15000) {
@@ -82,14 +95,23 @@ class OnlineService {
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error(`A conexão online excedeu ${Math.round(timeoutMs / 1000)} segundos.`)
       throw error
-    } finally { clearTimeout(timeout) }
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   async start({ activationCode = '' } = {}) {
     const requestId = crypto.randomBytes(18).toString('hex')
     const secret = crypto.randomBytes(24).toString('hex')
     const installationId = this.installationId()
-    const result = await this.request('/api/desktop/start', { requestId, secret, installationId, deviceName: os.hostname() || 'Computador', platform: process.platform, activationCode: String(activationCode || '').trim().toUpperCase() || undefined })
+    const result = await this.request('/api/desktop/start', {
+      requestId,
+      secret,
+      installationId,
+      deviceName: os.hostname() || 'Computador',
+      platform: process.platform,
+      activationCode: String(activationCode || '').trim().toUpperCase() || undefined
+    })
     const pending = { requestId, secret, expiresAt: result.expiresAt }
     this.writeConfig({ pending })
     const approvalUrl = `${this.baseUrl}/#desktop-auth=${requestId}.${secret}`
@@ -103,7 +125,10 @@ class OnlineService {
       if (this.deviceToken()) return { status: 'approved', linked: true }
       return { status: 'idle', linked: false }
     }
-    const result = await this.request('/api/desktop/status', { requestId: cfg.pending.requestId, secret: cfg.pending.secret })
+    const result = await this.request('/api/desktop/status', {
+      requestId: cfg.pending.requestId,
+      secret: cfg.pending.secret
+    })
     if (result.status === 'approved' && result.deviceToken) {
       this.storeToken(result.deviceToken)
       return { status: 'approved', linked: true, deviceId: result.deviceId }
@@ -117,7 +142,9 @@ class OnlineService {
     return token
   }
 
-  async session() { return this.request('/api/desktop/session', { deviceToken: this.requireToken() }) }
+  async session() {
+    return this.request('/api/desktop/session', { deviceToken: this.requireToken() })
+  }
 
   disconnect() {
     const cfg = this.readConfig()
@@ -129,15 +156,41 @@ class OnlineService {
     return this.state()
   }
 
-  async syncPull(sinceRevision = 0) { return this.request('/api/desktop/sync/pull', { deviceToken: this.requireToken(), sinceRevision }) }
-  async syncPush(changes = []) { return this.request('/api/desktop/sync/push', { deviceToken: this.requireToken(), changes }) }
-  async publishMobileSummary(summary) { return this.request('/api/desktop/mobile-summary/publish', { deviceToken: this.requireToken(), summary }) }
-  async financeRead(view) { return this.request('/api/desktop/finance/read', { deviceToken: this.requireToken(), view }) }
-  async financeWrite(action, input) { return this.request('/api/desktop/finance/write', { deviceToken: this.requireToken(), action, input }) }
-  async publishFinanceReference(obligations) { return this.request('/api/desktop/finance-reference/publish', { deviceToken: this.requireToken(), obligations }) }
-  async aiAnalyze(input) { return this.request('/api/desktop/ai/analyze', { deviceToken: this.requireToken(), ...input }, 90000) }
-  async conflicts() { return this.request('/api/desktop/sync/conflicts', { deviceToken: this.requireToken() }) }
-  async resolveConflict(conflictId, resolution) { return this.request('/api/desktop/sync/conflicts/resolve', { deviceToken: this.requireToken(), conflictId, resolution }) }
+  async syncPull(sinceRevision = 0) {
+    return this.request('/api/desktop/sync/pull', { deviceToken: this.requireToken(), sinceRevision })
+  }
+
+  async syncPush(changes = []) {
+    return this.request('/api/desktop/sync/push', { deviceToken: this.requireToken(), changes })
+  }
+
+  async publishMobileSummary(summary) {
+    return this.request('/api/desktop/mobile-summary/publish', { deviceToken: this.requireToken(), summary })
+  }
+
+  async financeRead(view) {
+    return this.request('/api/desktop/finance/read', { deviceToken: this.requireToken(), view })
+  }
+
+  async financeWrite(action, input) {
+    return this.request('/api/desktop/finance/write', { deviceToken: this.requireToken(), action, input })
+  }
+
+  async publishFinanceReference(obligations) {
+    return this.request('/api/desktop/finance-reference/publish', { deviceToken: this.requireToken(), obligations })
+  }
+
+  async aiAnalyze(input) {
+    return this.request('/api/desktop/ai/analyze', { deviceToken: this.requireToken(), ...input }, 90000)
+  }
+
+  async conflicts() {
+    return this.request('/api/desktop/sync/conflicts', { deviceToken: this.requireToken() })
+  }
+
+  async resolveConflict(conflictId, resolution) {
+    return this.request('/api/desktop/sync/conflicts/resolve', { deviceToken: this.requireToken(), conflictId, resolution })
+  }
 }
 
 module.exports = { OnlineService, DEFAULT_BASE_URL }
