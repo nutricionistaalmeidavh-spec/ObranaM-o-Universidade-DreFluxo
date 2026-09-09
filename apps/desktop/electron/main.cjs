@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu, safeStorage } = requir
 const path = require('node:path')
 const { DatabaseService } = require('./services/database-safe.cjs')
 const { FileService } = require('./services/file-service.cjs')
+const { ManagedDirectoryService } = require('./services/managed-directory-service.cjs')
 const { BackupService } = require('./services/backup-service.cjs')
 const { ImportService } = require('./services/import-service.cjs')
 const { DocumentService } = require('./services/document-service.cjs')
@@ -37,10 +38,11 @@ function createServices() {
   db.open()
   const files = new FileService({ documentsDir: paths.documentsDir, db })
   const documentRoot = new DocumentRootService({ db, files, defaultDir: paths.documentsDir })
+  const explorer = new ManagedDirectoryService({ roots: { documents: () => documentRoot.getRoot() }, shell })
   const product = new ProductService({ db })
   const uiPreferences = new UiPreferencesService({ db })
   return {
-    paths, db, files, documentRoot,
+    paths, db, files, documentRoot, explorer,
     backup: new BackupService({ db, ...paths }),
     importer: new ImportService({ db }),
     documents: new DocumentService({ db, fileService: files, dialog }),
@@ -98,6 +100,8 @@ function registerIpc() {
   ipcMain.handle('files:open-folder', envelope(() => services.documentRoot.openRoot()))
   ipcMain.handle('files:choose-root', envelope(() => services.documentRoot.chooseRoot()))
   ipcMain.handle('files:get-root', envelope(() => services.documentRoot.getRoot()))
+  ipcMain.handle('explorer:list', envelope((payload) => services.explorer.list(payload)))
+  ipcMain.handle('explorer:open', envelope((payload) => services.explorer.open(payload)))
   ipcMain.handle('documents:delete', envelope((payload) => services.files.deleteDocument(payload)))
   ipcMain.handle('documents:generate', envelope((payload) => services.documents.generate(payload)))
   ipcMain.handle('documents:templates', envelope(() => services.documents.listTemplates()))
