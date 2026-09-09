@@ -22,6 +22,14 @@ O usuário autorizou apenas as entregas 1 e 2 da revisão do PR #7. A tabela aba
 | 4. Validação integrada do módulo completo | Gates do escopo 1–2 passaram; repetir após integrar a UI. |
 | 5. Epson real | Pendente no Windows do usuário. |
 
+### Separação dos roadmaps
+
+Este documento é o roadmap oficial do **scanner Epson/WIA**. O gerenciador interno de arquivos possui roadmap próprio em `apps/desktop/docs/superpowers/plans/2026-09-09-document-explorer-deliveries-2-6.md`.
+
+- **Scanner Epson/WIA:** Entregas 1 e 2 concluídas; Entregas 3, 4 e 5 permanecem pendentes.
+- **Gerenciador interno de arquivos:** Entregas 0–6 concluídas no roadmap separado.
+- Funcionalidades reutilizadas pelo gerenciador, inclusive componentes visuais do scanner, não avançam automaticamente o status deste roadmap. A Entrega 3 só é concluída quando o fluxo visual estiver integrado e validado na Central de Documentos/Registros conforme os critérios abaixo.
+
 ### Evidência das entregas 1–2
 
 - Baseline `9c7123d`: seis testes selecionados falharam em disponibilidade, rollback e novas pastas antes das correções.
@@ -32,7 +40,7 @@ O usuário autorizou apenas as entregas 1 e 2 da revisão do PR #7. A tabela aba
 - Cobertura de falhas: primeiro salvamento e substituição com erro no banco, erro na publicação física, conflito surgido durante geração, cancelamento de captura/salvamento, encerramento durante captura e separação de homônimos com CPF diferente.
 - Limite: a compensação cobre exceções em execução; não oferece atomicidade entre SQLite e sistema de arquivos sob queda de energia. Nenhum teste de Epson físico foi realizado.
 
-O PR permanece em draft; não liberar o módulo completo antes das entregas seguintes.
+O PR #7 permanece em draft; não liberar o módulo completo antes das entregas seguintes.
 
 ## Global Constraints
 
@@ -174,7 +182,7 @@ Only show scan action for documents with `funcionario_id` and `status_assinatura
 
 - [ ] **Step 2: Add scan modal**
 
-Default mode to `grayscale`; provide radio/select for `Tons de cinza` and `Colorido`, scan first page, thumbnails/previews, `Refazer`, `Adicionar página`, `Cancelar` and `Salvar assinado`.
+Default mode to `grayscale`; provide radio/select for `Tons de cinza` e `Colorido`, scan first page, thumbnails/previews, `Refazer`, `Adicionar página`, `Cancelar` and `Salvar assinado`.
 
 - [ ] **Step 3: Handle overwrite confirmation**
 

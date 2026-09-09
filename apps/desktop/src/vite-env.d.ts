@@ -1,5 +1,27 @@
 /// <reference types="vite/client" />
 type EntityApi = { list(filters?: Record<string, unknown>): Promise<any[]>; get(id: number): Promise<any>; save(data: Record<string, unknown>): Promise<any>; remove(id: number): Promise<boolean> }
+type ExplorerEntry = { name:string; relativePath:string; kind:'folder'|'file'|'link'; extension:string; size:number|null; modifiedAt:string; canOpen:boolean }
+type ExplorerDirectory = { rootId:string; name:string; relativePath:string; parentRelativePath:string|null; items:ExplorerEntry[] }
+type ExplorerPreview = { rootId:string; name:string; relativePath:string; extension:string; size:number; modifiedAt:string; previewKind:'pdf'|'image'|'unsupported'; mimeType:string|null; dataUrl:string|null; previewBlockedReason:'size'|'type'|null }
+type ExplorerMutationResult = { name:string; relativePath:string }
+type ExplorerEmployee = { id:number; nome:string; cpf:string|null }
+type ExplorerDocumentContext = { relativePath:string; employee:ExplorerEmployee|null; competencia:string|null; categoria:string|null; status:string; documentId:number|null; arquivoId:number|null }
+type ExplorerDocumentIndex = { items:ExplorerDocumentContext[]; facets:{employees:ExplorerEmployee[];competencias:string[];categorias:string[];statuses:string[]} }
+type ExplorerApi = {
+  list(rootId:string,relativePath?:string):Promise<ExplorerDirectory>
+  preview(rootId:string,relativePath:string):Promise<ExplorerPreview>
+  open(rootId:string,relativePath?:string):Promise<string>
+  createFolder(rootId:string,parentRelativePath:string,name:string):Promise<ExplorerMutationResult>
+  rename(rootId:string,relativePath:string,newName:string):Promise<ExplorerMutationResult>
+  move(rootId:string,relativePath:string,destinationRelativePath:string):Promise<ExplorerMutationResult>
+  remove(rootId:string,relativePath:string,recursive?:boolean):Promise<boolean>
+  pickImport(rootId:string,destinationRelativePath?:string):Promise<ExplorerMutationResult[]>
+  importFiles(rootId:string,destinationRelativePath:string,sourcePaths:string[]):Promise<ExplorerMutationResult[]>
+  pathForFile(file:File):string
+  context(rootId:string,relativePath:string):Promise<ExplorerDocumentContext>
+  index(rootId:string):Promise<ExplorerDocumentIndex>
+  moveToSigned(rootId:string,relativePath:string):Promise<ExplorerDocumentContext>
+}
 type ScannerMode = 'grayscale'|'color'
 type ScannerPage = { index:number; mode:ScannerMode; preview:string }
 type ScannerSession = { sessionId:string; pages:ScannerPage[] }
@@ -19,6 +41,7 @@ interface Window { fluxoDre: {
   medicoes: EntityApi & { saveWithItems(data:any):Promise<any>; anexos:EntityApi; itensMedidos:EntityApi; importAttachment(data:any):Promise<any>; mapa: EntityApi }; contas: EntityApi & { payment(id:number,payment:any):Promise<any> }
   categorias: EntityApi; cargos: EntityApi; funcionarios: EntityApi; folhas: EntityApi; lancamentosFolha: EntityApi; pagamentosFuncionario: EntityApi; beneficios: EntityApi; epis: EntityApi; funcionarioEpis: EntityApi; fontes: EntityApi; pastas: EntityApi
   documentos: EntityApi & { generate(data:any):Promise<any>; templates():Promise<any[]>; saveTemplate(data:any):Promise<any>; chooseLocalTemplate():Promise<any>; setDefaultTemplate(data:any):Promise<any>; importForEmployee(data:any):Promise<any>; importForWork(data:any):Promise<any>; open(path:string):Promise<any>; reveal(path:string):Promise<any>; copyPath(path:string):Promise<any>; openFolder():Promise<any>; chooseRoot():Promise<any>; getRoot():Promise<string>; delete(data:any):Promise<any> }
+  explorador: ExplorerApi
   scanner: ScannerApi
   planejamento: { overview(obra_id:number):Promise<any> }; campo:{saveRdo(data:any):Promise<any>}; tarefas:EntityApi; compras: EntityApi & { cotacoes: EntityApi; pedidos: EntityApi; itens:EntityApi; recebimentos: EntityApi; estoque:EntityApi; summary(obra_id:number):Promise<any>; createOrder(data:any):Promise<any>;receiveMaterial(data:any):Promise<any>; moveStock(data:any):Promise<any> }; contratos: EntityApi & { aditivos:EntityApi; create(data:any):Promise<any>; addendum(data:any):Promise<any> }; frentes:EntityApi; subfrentes:EntityApi; checklistFrente:EntityApi
   folha: { employee(data:any):Promise<any>; saveVariable(data:any):Promise<any>; removeVariable(id:number):Promise<any>; confirm(data:any):Promise<any>; pending(competencia:string):Promise<any[]> }
