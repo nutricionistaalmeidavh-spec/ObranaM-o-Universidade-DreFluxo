@@ -18,6 +18,19 @@ export type ExplorerDirectory = {
   items: ExplorerEntry[]
 }
 
+export type ExplorerPreview = {
+  rootId: string
+  name: string
+  relativePath: string
+  extension: string
+  size: number
+  modifiedAt: string
+  previewKind: 'pdf' | 'image' | 'unsupported'
+  mimeType: string | null
+  dataUrl: string | null
+  previewBlockedReason: 'size' | 'type' | null
+}
+
 export type FileExplorerProps = {
   rootId: string
   rootLabel?: string
