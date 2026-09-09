@@ -212,9 +212,10 @@ class ScannerService {
     const pdf = await PDFDocument.create()
     for (const pageImage of session.pages) {
       const bytes = fs.readFileSync(pageImage.path)
+      const jpegBytes = Uint8Array.from(bytes)
       let image
       try {
-        image = await pdf.embedJpg(bytes)
+        image = await pdf.embedJpg(jpegBytes)
       } catch (error) {
         const header = bytes.subarray(0, 8).toString('hex')
         throw new Error(`Imagem digitalizada inválida (${path.basename(pageImage.path)}; header=${header}; bytes=${bytes.length}): ${error?.message || error}`)
