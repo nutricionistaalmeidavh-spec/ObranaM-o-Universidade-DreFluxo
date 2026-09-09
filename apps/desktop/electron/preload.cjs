@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 async function call(channel, payload) {
   const response = await ipcRenderer.invoke(channel, payload)
@@ -17,7 +17,14 @@ contextBridge.exposeInMainWorld('fluxoDre', {
   explorador: {
     list: (rootId, relativePath = '') => call('explorer:list', { rootId, relativePath }),
     preview: (rootId, relativePath) => call('explorer:preview', { rootId, relativePath }),
-    open: (rootId, relativePath = '') => call('explorer:open', { rootId, relativePath })
+    open: (rootId, relativePath = '') => call('explorer:open', { rootId, relativePath }),
+    createFolder: (rootId, parentRelativePath, name) => call('explorer:create-folder', { rootId, parentRelativePath, name }),
+    rename: (rootId, relativePath, newName) => call('explorer:rename', { rootId, relativePath, newName }),
+    move: (rootId, relativePath, destinationRelativePath) => call('explorer:move', { rootId, relativePath, destinationRelativePath }),
+    remove: (rootId, relativePath, recursive = false) => call('explorer:remove', { rootId, relativePath, recursive }),
+    pickImport: (rootId, destinationRelativePath = '') => call('explorer:pick-import', { rootId, destinationRelativePath }),
+    importFiles: (rootId, destinationRelativePath, sourcePaths) => call('explorer:import', { rootId, destinationRelativePath, sourcePaths }),
+    pathForFile: (file) => webUtils.getPathForFile(file)
   },
   scanner: {
     capabilities: () => call('scanner:capabilities'),
