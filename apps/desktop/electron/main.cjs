@@ -164,7 +164,7 @@ function registerIpc() {
   ipcMain.handle('catalog:save-cargo', envelope((data) => services.catalog.saveCargo(data)))
   ipcMain.handle('catalog:save-benefit', envelope((data) => services.catalog.saveBenefit(data)))
   ipcMain.handle('catalog:save-link', envelope((data) => services.catalog.saveLink(data)))
-  ipcMain.handle('catalog:deactivate', envelope((data) => services.catalog.deactivate(data.type,id)))
+  ipcMain.handle('catalog:deactivate', envelope((data) => services.catalog.deactivate(data.type, data.id)))
   ipcMain.handle('online:state', envelope(() => services.online.state()))
   ipcMain.handle('online:start', envelope((payload) => services.online.start(payload)))
   ipcMain.handle('online:status', envelope(() => services.online.status()))
