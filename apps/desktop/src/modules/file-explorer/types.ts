@@ -54,4 +54,5 @@ export type FileExplorerProps = {
   description?: string
   emptyTitle?: string
   className?: string
+  documentFeatures?: boolean
 }
