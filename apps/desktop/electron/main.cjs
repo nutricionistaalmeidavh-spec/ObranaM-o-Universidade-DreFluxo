@@ -9,6 +9,7 @@ const { PayrollService } = require('./services/payroll-service.cjs')
 const { DocumentRootService } = require('./services/document-root-service.cjs')
 const { CatalogService } = require('./services/catalog-service.cjs')
 const { TimeService } = require('./services/time-service.cjs')
+const { ScannerService } = require('./services/scanner-service.cjs')
 const { WorkImportService } = require('./services/work-import-service.cjs')
 const { UniversalImportService } = require('./services/universal-import-service.cjs')
 const { WorksService } = require('./services/works-service.cjs')
@@ -46,6 +47,7 @@ function createServices() {
     payroll: new PayrollService({ db }),
     catalog: new CatalogService({ db }),
     time: new TimeService({ db, fileService: files }),
+    scanner: new ScannerService({ db, fileService: files, dataDir: paths.dataDir }),
     workImport: new WorkImportService({ db }),
     universalImport: new UniversalImportService({ db }),
     works: new WorksService({ db }), planning: new PlanningService({ db }), field: new FieldService({ db }),
@@ -131,6 +133,12 @@ function registerIpc() {
   ipcMain.handle('time:save', envelope((payload) => services.time.save(payload)))
   ipcMain.handle('time:generate', envelope((payload) => services.time.generateDocuments(payload)))
   ipcMain.handle('time:generate-all', envelope((payload) => services.time.generateForAll(payload)))
+  ipcMain.handle('scanner:capabilities', envelope(() => services.scanner.capabilities()))
+  ipcMain.handle('scanner:start', envelope((payload) => services.scanner.start(payload)))
+  ipcMain.handle('scanner:add-page', envelope((payload) => services.scanner.addPage(payload)))
+  ipcMain.handle('scanner:redo-page', envelope((payload) => services.scanner.redoPage(payload)))
+  ipcMain.handle('scanner:discard', envelope((payload) => services.scanner.discard(payload)))
+  ipcMain.handle('scanner:save-signed', envelope((payload) => services.scanner.saveSigned(payload)))
   ipcMain.handle('catalog:list', envelope(() => services.catalog.list()))
   ipcMain.handle('catalog:save-cargo', envelope((data) => services.catalog.saveCargo(data)))
   ipcMain.handle('catalog:save-benefit', envelope((data) => services.catalog.saveBenefit(data)))
@@ -173,6 +181,6 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('before-quit', () => services?.db?.close())
+app.on('before-quit', () => { services?.scanner?.dispose(); services?.db?.close() })
 process.on('uncaughtException', (error) => { console.error(error); dialog.showErrorBox('Erro inesperado', error.message) })
 process.on('unhandledRejection', (error) => console.error(error))
