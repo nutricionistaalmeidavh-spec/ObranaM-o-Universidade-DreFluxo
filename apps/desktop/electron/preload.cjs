@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('fluxoDre', {
   documentos: { ...entity('documentos'), generate: (data) => call('documents:generate', data), templates: () => call('documents:templates'), saveTemplate: (data) => call('documents:save-template', data), chooseLocalTemplate: () => call('documents:choose-local-template'), setDefaultTemplate: (data) => call('documents:set-default-template', data), importForEmployee: (data) => call('files:import-employee', data), importForWork: (data) => call('files:import-work-document', data), open: (path) => call('files:open', { path }), reveal: (path) => call('files:reveal', { path }), copyPath: (path) => call('files:copy-path', { path }), openFolder: () => call('files:open-folder'), chooseRoot: () => call('files:choose-root'), getRoot: () => call('files:get-root'), delete: (data) => call('documents:delete', data) },
   explorador: {
     list: (rootId, relativePath = '') => call('explorer:list', { rootId, relativePath }),
+    preview: (rootId, relativePath) => call('explorer:preview', { rootId, relativePath }),
     open: (rootId, relativePath = '') => call('explorer:open', { rootId, relativePath })
   },
   scanner: {
