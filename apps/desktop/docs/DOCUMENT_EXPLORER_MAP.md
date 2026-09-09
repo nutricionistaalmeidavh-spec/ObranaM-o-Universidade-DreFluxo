@@ -36,28 +36,26 @@ Isso preserva a separação entre funcionários homônimos quando CPF ou ID dife
 
 ### Documentos mensais de ponto e benefícios
 
-O fluxo mensal usa a base do funcionário e a competência:
+O fluxo mensal atual usa a base do funcionário e a competência e já prepara as duas pastas de assinatura:
 
 ```text
 <funcionário>/
   Recibos/
     YYYY/
       MM - mês/
+        Não assinados/
+        Assinados/
 ```
 
-No branch de scanner em desenvolvimento existe teste exigindo a evolução desta competência para:
+Novas fichas de ponto e recibos são gerados em `Não assinados`. `Assinados` é preparado como pasta irmã para o fluxo de digitalização. Arquivos mensais legados não são migrados nem apagados.
 
-```text
-MM - mês/
-  Não assinados/
-  Assinados/
-```
-
-A implementação do explorador é deliberadamente agnóstica a essa transição: ele lista o que estiver fisicamente presente sob a raiz autorizada, sem migrar, renomear ou reorganizar arquivos.
+A implementação do explorador é deliberadamente agnóstica à regra de negócio: ele lista o que estiver fisicamente presente sob a raiz autorizada, sem migrar, renomear ou reorganizar arquivos.
 
 ### Scanner de versões assinadas
 
 `ScannerService` recebe um documento já gerenciado e calcula um destino dentro da mesma área de documentos. Quando o original está em `Não assinados`, a versão digitalizada é direcionada à pasta irmã `Assinados`; em outros casos, cria/usa `Assinados` junto ao diretório do original. O arquivo final usa sufixo `_ASSINADO.pdf` e versões anteriores são preservadas quando há substituição controlada.
+
+A versão atual do serviço também protege captura e salvamento concorrentes, aguarda cancelamento do processo WIA antes da limpeza e valida caminhos reais antes de publicar o arquivo assinado.
 
 ### Documentos de obras
 
