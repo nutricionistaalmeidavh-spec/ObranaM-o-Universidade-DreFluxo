@@ -11,6 +11,8 @@ const PREVIEW_TYPES = new Map([
   ['.webp', { previewKind: 'image', mimeType: 'image/webp' }],
   ['.bmp', { previewKind: 'image', mimeType: 'image/bmp' }]
 ])
+const INVALID_NAME = /[<>:"/\\|?*\x00-\x1F]/
+const RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 
 function portablePath(value) {
   return String(value || '').split(path.sep).join('/')
@@ -20,10 +22,17 @@ function escapesRoot(relative) {
   return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
 }
 
+function validateName(value) {
+  const name = String(value || '')
+  if (!name || name === '.' || name === '..' || name !== name.trim() || INVALID_NAME.test(name) || /[. ]$/.test(name) || RESERVED_NAME.test(name)) throw new Error('Nome inválido.')
+  return name
+}
+
 class ManagedDirectoryService {
-  constructor({ roots, shell, maxPreviewBytes } = {}) {
+  constructor({ roots, shell, dialog, maxPreviewBytes } = {}) {
     this.roots = roots || {}
     this.shell = shell
+    this.dialog = dialog
     this.maxPreviewBytes = Number.isFinite(maxPreviewBytes) && Number(maxPreviewBytes) > 0 ? Number(maxPreviewBytes) : DEFAULT_MAX_PREVIEW_BYTES
   }
 
@@ -57,6 +66,22 @@ class ManagedDirectoryService {
     if (escapesRoot(path.relative(rootReal, targetReal))) throw new Error('Caminho fora da área gerenciada.')
 
     return { root, target, relativeNative, stat: fs.statSync(target) }
+  }
+
+  resolveDestination(rootId, parentRelativePath = '', name) {
+    const parent = this.resolve(rootId, parentRelativePath)
+    if (!parent.stat.isDirectory()) throw new Error('O destino informado não é uma pasta.')
+    if (fs.lstatSync(parent.target).isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser usados como destino.')
+    const safeName = validateName(name)
+    const target = path.join(parent.target, safeName)
+    const relativeNative = path.relative(parent.root, target)
+    if (escapesRoot(relativeNative)) throw new Error('Caminho fora da área gerenciada.')
+    return { ...parent, target, relativeNative }
+  }
+
+  assertMutableSource(resolved) {
+    if (!resolved.relativeNative) throw new Error('Não é permitido alterar a pasta raiz.')
+    if (fs.lstatSync(resolved.target).isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser alterados.')
   }
 
   list({ rootId, relativePath = '' } = {}) {
@@ -128,6 +153,89 @@ class ManagedDirectoryService {
     }
   }
 
+  createFolder({ rootId, parentRelativePath = '', name } = {}) {
+    const destination = this.resolveDestination(rootId, parentRelativePath, name)
+    if (fs.existsSync(destination.target)) throw new Error('Já existe um item com esse nome no destino.')
+    fs.mkdirSync(destination.target)
+    return { name: path.basename(destination.target), relativePath: portablePath(destination.relativeNative) }
+  }
+
+  rename({ rootId, relativePath, newName } = {}) {
+    const source = this.resolve(rootId, relativePath)
+    this.assertMutableSource(source)
+    const parentRelativePath = portablePath(path.dirname(source.relativeNative) === '.' ? '' : path.dirname(source.relativeNative))
+    const destination = this.resolveDestination(rootId, parentRelativePath, newName)
+    if (fs.existsSync(destination.target)) throw new Error('Já existe um item com esse nome no destino.')
+    fs.renameSync(source.target, destination.target)
+    return { name: path.basename(destination.target), relativePath: portablePath(destination.relativeNative) }
+  }
+
+  move({ rootId, relativePath, destinationRelativePath = '' } = {}) {
+    const source = this.resolve(rootId, relativePath)
+    this.assertMutableSource(source)
+    const destinationFolder = this.resolve(rootId, destinationRelativePath)
+    if (!destinationFolder.stat.isDirectory()) throw new Error('O destino informado não é uma pasta.')
+    if (fs.lstatSync(destinationFolder.target).isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser usados como destino.')
+    if (source.stat.isDirectory()) {
+      const nested = path.relative(source.target, destinationFolder.target)
+      if (!nested || (!nested.startsWith('..' + path.sep) && nested !== '..' && !path.isAbsolute(nested))) throw new Error('Uma pasta não pode ser movida para dentro dela mesma.')
+    }
+    const target = path.join(destinationFolder.target, path.basename(source.target))
+    if (fs.existsSync(target)) throw new Error('Já existe um item com esse nome no destino.')
+    fs.renameSync(source.target, target)
+    return { name: path.basename(target), relativePath: portablePath(path.relative(source.root, target)) }
+  }
+
+  remove({ rootId, relativePath, recursive = false } = {}) {
+    const source = this.resolve(rootId, relativePath)
+    this.assertMutableSource(source)
+    if (source.stat.isDirectory()) {
+      const nonEmpty = fs.readdirSync(source.target).length > 0
+      if (nonEmpty && !recursive) throw new Error('A pasta não está vazia.')
+      fs.rmSync(source.target, { recursive: Boolean(recursive), force: false })
+    } else {
+      fs.unlinkSync(source.target)
+    }
+    return true
+  }
+
+  importFiles({ rootId, destinationRelativePath = '', sourcePaths } = {}) {
+    const destination = this.resolve(rootId, destinationRelativePath)
+    if (!destination.stat.isDirectory()) throw new Error('O destino informado não é uma pasta.')
+    if (fs.lstatSync(destination.target).isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser usados como destino.')
+    if (!Array.isArray(sourcePaths) || !sourcePaths.length) return []
+
+    const pending = sourcePaths.map((sourcePath) => {
+      if (typeof sourcePath !== 'string' || !path.isAbsolute(sourcePath) || !fs.existsSync(sourcePath)) throw new Error('Arquivo de origem indisponível.')
+      const stat = fs.lstatSync(sourcePath)
+      if (stat.isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser importados.')
+      if (!stat.isFile()) throw new Error('Somente arquivos podem ser importados.')
+      const name = validateName(path.basename(sourcePath))
+      const target = path.join(destination.target, name)
+      if (fs.existsSync(target)) throw new Error('Já existe um item com esse nome no destino.')
+      return { sourcePath, name, target, relativePath: portablePath(path.relative(destination.root, target)) }
+    })
+
+    const copied = []
+    try {
+      for (const item of pending) {
+        fs.copyFileSync(item.sourcePath, item.target, fs.constants.COPYFILE_EXCL)
+        copied.push(item.target)
+      }
+      return pending.map(({ name, relativePath }) => ({ name, relativePath }))
+    } catch (error) {
+      for (const target of copied.reverse()) fs.rmSync(target, { force: true })
+      throw error
+    }
+  }
+
+  async pickImportFiles({ rootId, destinationRelativePath = '' } = {}) {
+    if (!this.dialog?.showOpenDialog) throw new Error('Seletor de arquivos indisponível.')
+    const result = await this.dialog.showOpenDialog({ title: 'Importar arquivos', properties: ['openFile', 'multiSelections'] })
+    if (result.canceled || !result.filePaths?.length) return []
+    return this.importFiles({ rootId, destinationRelativePath, sourcePaths: result.filePaths })
+  }
+
   async open({ rootId, relativePath = '' } = {}) {
     const resolved = this.resolve(rootId, relativePath)
     if (fs.lstatSync(resolved.target).isSymbolicLink()) throw new Error('Atalhos simbólicos não podem ser abertos por este explorador.')
@@ -136,4 +244,4 @@ class ManagedDirectoryService {
   }
 }
 
-module.exports = { ManagedDirectoryService, portablePath, DEFAULT_MAX_PREVIEW_BYTES }
+module.exports = { ManagedDirectoryService, portablePath, validateName, DEFAULT_MAX_PREVIEW_BYTES }
