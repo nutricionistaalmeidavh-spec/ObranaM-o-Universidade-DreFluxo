@@ -212,7 +212,13 @@ class ScannerService {
     const pdf = await PDFDocument.create()
     for (const pageImage of session.pages) {
       const bytes = fs.readFileSync(pageImage.path)
-      const image = await pdf.embedJpg(bytes)
+      let image
+      try {
+        image = await pdf.embedJpg(bytes)
+      } catch (error) {
+        const header = bytes.subarray(0, 8).toString('hex')
+        throw new Error(`Imagem digitalizada inválida (${path.basename(pageImage.path)}; header=${header}; bytes=${bytes.length}): ${error?.message || error}`)
+      }
       const landscape = image.width > image.height
       const pageSize = landscape ? [A4[1], A4[0]] : A4
       const page = pdf.addPage(pageSize)
