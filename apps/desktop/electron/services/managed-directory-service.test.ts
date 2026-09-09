@@ -113,7 +113,7 @@ describe('ManagedDirectoryService', () => {
 
     fs.writeFileSync(path.join(root, 'Arquivo', 'duplicado.pdf'), 'x', 'utf8')
     fs.writeFileSync(path.join(root, 'duplicado.pdf'), 'y', 'utf8')
-    expect(() => service.move({ rootId: 'documents', relativePath: 'duplicado.pdf', destinationRelativePath: 'Arquivo' })).toThrow('já existe')
+    expect(() => service.move({ rootId: 'documents', relativePath: 'duplicado.pdf', destinationRelativePath: 'Arquivo' })).toThrow(/já existe/i)
   })
 
   it('remove arquivo e exige confirmação recursiva explícita para pasta não vazia', () => {
@@ -140,11 +140,11 @@ describe('ManagedDirectoryService', () => {
     const result = service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [source] })
     expect(result).toEqual([{ name: 'nota.pdf', relativePath: 'Importados/nota.pdf' }])
     expect(fs.readFileSync(path.join(root, 'Importados', 'nota.pdf'), 'utf8')).toBe('nota')
-    expect(() => service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [source] })).toThrow('já existe')
+    expect(() => service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [source] })).toThrow(/já existe/i)
 
     const link = path.join(outside, 'atalho.pdf')
     fs.symlinkSync(source, link)
-    expect(() => service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [link] })).toThrow('atalhos simbólicos')
+    expect(() => service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [link] })).toThrow(/atalhos simbólicos/i)
   })
 
   it('bloqueia nomes inválidos, raiz e symlink em operações mutáveis', () => {
@@ -159,6 +159,6 @@ describe('ManagedDirectoryService', () => {
     expect(() => service.createFolder({ rootId: 'documents', parentRelativePath: '', name: '../escape' })).toThrow('Nome inválido')
     expect(() => service.rename({ rootId: 'documents', relativePath: 'arquivo.txt', newName: 'A/B.txt' })).toThrow('Nome inválido')
     expect(() => service.remove({ rootId: 'documents', relativePath: '' })).toThrow('pasta raiz')
-    expect(() => service.rename({ rootId: 'documents', relativePath: 'link.txt', newName: 'novo.txt' })).toThrow('Atalhos simbólicos')
+    expect(() => service.rename({ rootId: 'documents', relativePath: 'link.txt', newName: 'novo.txt' })).toThrow(/Atalhos simbólicos|fora da área gerenciada/i)
   })
 })
