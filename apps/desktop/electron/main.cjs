@@ -101,6 +101,7 @@ function registerIpc() {
   ipcMain.handle('files:choose-root', envelope(() => services.documentRoot.chooseRoot()))
   ipcMain.handle('files:get-root', envelope(() => services.documentRoot.getRoot()))
   ipcMain.handle('explorer:list', envelope((payload) => services.explorer.list(payload)))
+  ipcMain.handle('explorer:preview', envelope((payload) => services.explorer.preview(payload)))
   ipcMain.handle('explorer:open', envelope((payload) => services.explorer.open(payload)))
   ipcMain.handle('documents:delete', envelope((payload) => services.files.deleteDocument(payload)))
   ipcMain.handle('documents:generate', envelope((payload) => services.documents.generate(payload)))
