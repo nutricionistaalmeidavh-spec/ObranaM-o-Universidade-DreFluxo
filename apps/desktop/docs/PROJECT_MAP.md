@@ -147,6 +147,15 @@ Ao adicionar ou mudar uma operação pública, mantenha sincronizados:
 - O renderer continua sem acesso direto a Node ou ao token do dispositivo.
 - Rotas suportadas incluem sessão, sync pull/push, publicação de resumo mobile, leitura/escrita financeira, publicação de obrigações, IA estruturada e resolução de conflitos.
 
+## Adendo 2026-09-09 — scanner, entregas 1 e 2
+
+- `electron/services/scanner-service.cjs`: captura Windows/PowerShell 5.1/WIA, cinza ou colorido, 300 DPI com configuração verificada; PDF multipágina e versões vinculadas ao original.
+- API `window.fluxoDre.scanner`: `capabilities`, `start`, `addPage`, `redoPage`, `discard`, `saveSigned`. Canais `scanner:capabilities`, `scanner:start`, `scanner:add-page`, `scanner:redo-page`, `scanner:discard`, `scanner:save-signed` em main/preload; tipagem em `src/vite-env.d.ts`.
+- Disponibilidade consulta PowerShell e enumeração WIA; não comprova comunicação com o Epson físico. Operações de captura/salvamento são exclusivas; descarte aborta a captura e espera o processo encerrar. O encerramento do Electron aguarda o serviço antes de fechar o banco.
+- Salvamento usa transação SQLite, criação exclusiva e compensação dos arquivos em exceções. Se a compensação também falhar, preserva o backup e informa seu caminho. Isso não constitui garantia transacional entre disco e banco em queda de energia/encerramento forçado.
+- `time-service.cjs`: novas fichas/recibos em `<pasta do funcionário>/Recibos/<ano>/<mês>/Não assinados/`; prepara a irmã `Assinados/`. `folder` continua apontando para o mês; acrescenta `unsignedFolder` e `signedFolder`. Não migra legados nem altera a identificação das pastas por nome/CPF.
+- Testes: `scanner-service.test.ts`, `scanner-ipc-contract.test.ts`, `time-service.test.ts`. UI de digitalização ainda pendente na entrega 3.
+
 ## Adendo 2026-09-09 — explorador de documentos reutilizável
 
 - `src/modules/file-explorer/`: componente `FileExplorer` reutilizável, grade, busca local, breadcrumb, voltar, atualizar e abertura no sistema operacional.

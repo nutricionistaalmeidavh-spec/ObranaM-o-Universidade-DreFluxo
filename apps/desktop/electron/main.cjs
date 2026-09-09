@@ -185,6 +185,20 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('before-quit', () => { services?.scanner?.dispose(); services?.db?.close() })
+let shutdownPromise = null
+let shutdownComplete = false
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  if (shutdownPromise) return
+  shutdownPromise = (async () => {
+    try { await services?.scanner?.dispose() }
+    catch (error) { console.error('Falha ao encerrar o scanner.', error) }
+    finally {
+      try { services?.db?.close() }
+      finally { shutdownComplete = true; app.quit() }
+    }
+  })()
+})
 process.on('uncaughtException', (error) => { console.error(error); dialog.showErrorBox('Erro inesperado', error.message) })
 process.on('unhandledRejection', (error) => console.error(error))

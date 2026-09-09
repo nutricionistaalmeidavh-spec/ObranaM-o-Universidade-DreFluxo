@@ -10,6 +10,24 @@ const execFileAsync = promisify(execFile)
 const MODES = new Set(['grayscale', 'color'])
 const A4 = [595.28, 841.89]
 
+// Abort emits an error before the process necessarily closes. Keep the operation
+// locked until PowerShell has closed, so cancellation cannot race file cleanup.
+function execFileUntilClosed(file, args, options) {
+  return new Promise((resolve, reject) => {
+    let result
+    let failure
+    const child = execFile(file, args, options, (error, stdout, stderr) => {
+      failure = error
+      if (failure) failure.stderr = stderr
+      result = { stdout, stderr }
+    })
+    child.once('close', () => {
+      if (failure) reject(failure)
+      else resolve(result)
+    })
+  })
+}
+
 function normalizedFolderName(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
@@ -49,6 +67,11 @@ function managedDestination(fileService, destination) {
   const target = path.resolve(destination)
   const relative = path.relative(root, target)
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Destino fora da área gerenciada de documentos.')
+  // Reject symlinks/junctions that redirect outside the managed root.
+  let ancestor = target
+  while (!fs.existsSync(ancestor)) ancestor = path.dirname(ancestor)
+  const realRelative = path.relative(fs.realpathSync(root), fs.realpathSync(ancestor))
+  if (realRelative === '..' || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) throw new Error('Destino fora da área gerenciada de documentos.')
   return target
 }
 
@@ -72,15 +95,23 @@ $ErrorActionPreference='Stop'
 function Set-WiaProperty($Properties,[int]$PropertyId,$Value) {
   foreach($property in $Properties) {
     if([int]$property.PropertyID -eq $PropertyId) {
-      try { $property.Value=$Value } catch { }
+      $property.Value=$Value
+      if([int]$property.Value -ne [int]$Value) { throw "O scanner não aceitou a configuração WIA $PropertyId." }
       return
     }
   }
+  throw "O scanner não oferece a configuração WIA $PropertyId."
+}
+function Assert-WiaProperty($Properties,[int]$PropertyId,$Value) {
+  foreach($property in $Properties) {
+    if([int]$property.PropertyID -eq $PropertyId -and [int]$property.Value -eq [int]$Value) { return }
+  }
+  throw "O scanner alterou a configuração WIA $PropertyId. A captura foi interrompida."
 }
 function Set-WiaExtentMax($Properties,[int]$PropertyId) {
   foreach($property in $Properties) {
     if([int]$property.PropertyID -eq $PropertyId) {
-      try { if($null -ne $property.SubTypeMax) { $property.Value=$property.SubTypeMax } } catch { }
+      if($null -ne $property.SubTypeMax) { $property.Value=$property.SubTypeMax }
       return
     }
   }
@@ -95,13 +126,17 @@ try {
   $device=$scannerInfo.Connect()
   if($device.Items.Count -lt 1) { throw 'O scanner WIA não disponibilizou uma área de digitalização.' }
   $item=$device.Items.Item(1)
+  $intent=$(if($Mode -eq 'color'){1}else{2})
+  Set-WiaProperty $item.Properties 6146 $intent
   Set-WiaProperty $item.Properties 6147 $Dpi
   Set-WiaProperty $item.Properties 6148 $Dpi
-  Set-WiaProperty $item.Properties 6146 $(if($Mode -eq 'color'){1}else{2})
   Set-WiaProperty $item.Properties 6149 0
   Set-WiaProperty $item.Properties 6150 0
   Set-WiaExtentMax $item.Properties 6151
   Set-WiaExtentMax $item.Properties 6152
+  Assert-WiaProperty $item.Properties 6146 $intent
+  Assert-WiaProperty $item.Properties 6147 $Dpi
+  Assert-WiaProperty $item.Properties 6148 $Dpi
   $jpeg='{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}'
   $image=$item.Transfer($jpeg)
   if(Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Force }
@@ -121,87 +156,135 @@ class ScannerService {
     this.dataDir = dataDir
     this.platform = platform
     this.sessions = new Map()
+    this.busy = false
+    this.disposed = false
+    this.injectedAcquisition = typeof acquirePage === 'function'
     this.cacheDir = path.join(dataDir, '.scanner-cache')
     fs.mkdirSync(this.cacheDir, { recursive: true })
     this.powershellPath = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
     this.acquirePage = acquirePage || ((options) => this.acquireWiaPage(options))
   }
 
-  capabilities() {
+  async capabilities() {
     const supported = this.platform === 'win32'
-    const available = supported && (fs.existsSync(this.powershellPath) || this.acquirePage !== this.acquireWiaPage)
+    let available = false
+    if (supported && !this.disposed) {
+      if (this.injectedAcquisition) available = true
+      else if (fs.existsSync(this.powershellPath)) {
+        try { available = await this.probeWia() } catch { available = false }
+      }
+    }
     return { platform: this.platform, supported, available, backend: supported ? 'wia' : null, dpi: 300, modes: ['grayscale', 'color'] }
+  }
+
+  async probeWia() {
+    const command = "$ErrorActionPreference='Stop'; $manager=New-Object -ComObject WIA.DeviceManager; $count=0; foreach($device in $manager.DeviceInfos){if([int]$device.Type -eq 1){$count++}}; [Console]::Write($count)"
+    const { stdout } = await execFileAsync(this.powershellPath, ['-NoProfile', '-STA', '-Command', command], { windowsHide: true, timeout: 10000, maxBuffer: 65536 })
+    return Number(String(stdout).trim()) > 0
   }
 
   getSession(sessionId) {
     const session = this.sessions.get(String(sessionId || ''))
-    if (!session) throw new Error('Sessão de digitalização não encontrada ou já encerrada.')
+    if (!session || session.cancelled) throw new Error('Sessão de digitalização não encontrada ou já encerrada.')
     return session
+  }
+
+  async runOperation(session, action) {
+    if (this.disposed) throw new Error('O serviço de digitalização foi encerrado.')
+    if (this.busy) throw new Error('Há uma operação de digitalização em andamento. Aguarde sua conclusão.')
+    this.busy = true
+    session.controller = new AbortController()
+    session.pending = (async () => {
+      try { return await action(session.controller.signal) }
+      finally { this.busy = false; session.controller = null }
+    })()
+    return session.pending
+  }
+
+  assertActive(signal) {
+    if (signal.aborted) throw new Error('Digitalização cancelada.')
   }
 
   newPagePath(sessionId) {
     return path.join(this.cacheDir, `${sessionId}-${crypto.randomUUID()}.jpg`)
   }
 
-  async capture(mode) {
+  async capture(mode, signal) {
     mode = assertMode(mode)
     if (this.platform !== 'win32') throw new Error('A digitalização direta está disponível somente no Windows nesta versão.')
     const destination = this.newPagePath('scan')
     try {
-      await this.acquirePage({ destination, mode, dpi: 300 })
+      this.assertActive(signal)
+      await this.acquirePage({ destination, mode, dpi: 300, signal })
+      this.assertActive(signal)
       if (!fs.existsSync(destination) || fs.statSync(destination).size === 0) throw new Error('O scanner não retornou uma imagem válida.')
       return { path: destination, mode }
     } catch (error) {
       fs.rmSync(destination, { force: true })
+      if (signal.aborted) throw new Error('Digitalização cancelada.')
       throw error
     }
   }
 
   async start({ mode = 'grayscale' } = {}) {
-    const session = { id: crypto.randomUUID(), pages: [] }
+    const session = { id: crypto.randomUUID(), pages: [], cancelled: false }
     this.sessions.set(session.id, session)
     try {
-      session.pages.push(await this.capture(mode))
-      return publicSession(session)
+      return await this.runOperation(session, async (signal) => {
+        session.pages.push(await this.capture(mode, signal))
+        return publicSession(session)
+      })
     } catch (error) {
-      this.discard({ sessionId: session.id })
+      await this.discard({ sessionId: session.id })
       throw error
     }
   }
 
   async addPage({ sessionId, mode = 'grayscale' } = {}) {
     const session = this.getSession(sessionId)
-    session.pages.push(await this.capture(mode))
-    return publicSession(session)
+    return this.runOperation(session, async (signal) => {
+      session.pages.push(await this.capture(mode, signal))
+      return publicSession(session)
+    })
   }
 
   async redoPage({ sessionId, pageIndex, mode = 'grayscale' } = {}) {
     const session = this.getSession(sessionId)
     const index = Number(pageIndex)
     if (!Number.isInteger(index) || index < 0 || index >= session.pages.length) throw new Error('Página de digitalização inválida.')
-    const replacement = await this.capture(mode)
-    const previous = session.pages[index]
-    session.pages[index] = replacement
-    fs.rmSync(previous.path, { force: true })
-    return publicSession(session)
+    return this.runOperation(session, async (signal) => {
+      const replacement = await this.capture(mode, signal)
+      const previous = session.pages[index]
+      session.pages[index] = replacement
+      fs.rmSync(previous.path, { force: true })
+      return publicSession(session)
+    })
+  }
+
+  clearSession(session) {
+    for (const page of session.pages) fs.rmSync(page.path, { force: true })
+    this.sessions.delete(session.id)
   }
 
   async discard({ sessionId } = {}) {
-    const id = String(sessionId || '')
-    const session = this.sessions.get(id)
+    const session = this.sessions.get(String(sessionId || ''))
     if (!session) return true
-    for (const page of session.pages) fs.rmSync(page.path, { force: true })
-    this.sessions.delete(id)
+    session.cancelled = true
+    session.controller?.abort()
+    // Wait for the writer to stop before removing its output.
+    try { await session.pending } catch { /* The caller receives the operation error. */ }
+    this.clearSession(session)
     return true
   }
 
-  async acquireWiaPage({ destination, mode, dpi }) {
+  async acquireWiaPage({ destination, mode, dpi, signal }) {
     if (this.platform !== 'win32') throw new Error('A digitalização direta está disponível somente no Windows nesta versão.')
     if (!fs.existsSync(this.powershellPath)) throw new Error('Windows PowerShell 5.1 não encontrado. Não foi possível iniciar o WIA.')
     const scriptPath = path.join(this.cacheDir, 'wia-scan.ps1')
-    if (!fs.existsSync(scriptPath) || fs.readFileSync(scriptPath, 'utf8') !== wiaScript()) fs.writeFileSync(scriptPath, wiaScript(), 'utf8')
+    const script = '\uFEFF' + wiaScript() // Windows PowerShell 5.1 requires a BOM for UTF-8.
+    if (!fs.existsSync(scriptPath) || fs.readFileSync(scriptPath, 'utf8') !== script) fs.writeFileSync(scriptPath, script, 'utf8')
     try {
-      await execFileAsync(this.powershellPath, ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-Destination', destination, '-Mode', assertMode(mode), '-Dpi', String(dpi || 300)], { windowsHide: true, timeout: 180000, maxBuffer: 1024 * 1024 })
+      await execFileUntilClosed(this.powershellPath, ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-Destination', destination, '-Mode', assertMode(mode), '-Dpi', String(dpi || 300)], { windowsHide: true, timeout: 180000, maxBuffer: 1024 * 1024, signal })
     } catch (error) {
       const detail = String(error?.stderr || error?.message || '').trim().split(/\r?\n/).filter(Boolean).slice(-1)[0]
       throw new Error(detail || 'Não foi possível digitalizar. Verifique o scanner Epson e tente novamente.')
@@ -247,69 +330,97 @@ class ScannerService {
     return Number(row?.value || 1)
   }
 
-  archiveExisting(destination, existingSigned) {
-    if (!fs.existsSync(destination)) return null
-    const preferredVersion = existingSigned?.versao || 1
-    const archive = firstAvailableArchive(destination, preferredVersion)
-    fs.renameSync(destination, archive)
-    if (existingSigned?.arquivo_registro_id && path.resolve(existingSigned.arquivo_caminho) === path.resolve(destination)) {
-      const file = this.db.get('arquivos', existingSigned.arquivo_registro_id)
-      if (file) this.db.save('arquivos', { ...file, nome_original: path.basename(archive), nome_armazenado: path.basename(archive), caminho: archive })
-    }
-    return archive
-  }
-
   async saveSigned({ sessionId, documentId, replace = false } = {}) {
     const session = this.getSession(sessionId)
+    return this.runOperation(session, (signal) => this.persistSigned(session, documentId, replace, signal))
+  }
+
+  async persistSigned(session, documentId, replace, signal) {
+    if (!Number.isSafeInteger(documentId) || documentId <= 0 || typeof replace !== 'boolean') throw new Error('Parâmetros de salvamento inválidos.')
     if (!session.pages.length) throw new Error('Nenhuma página foi digitalizada.')
-    const original = this.db.get('documentos', Number(documentId))
-    if (!original || !original.arquivo_id || !original.funcionario_id) throw new Error('Documento de funcionário inválido para digitalização.')
+    const original = this.db.get('documentos', documentId)
+    if (!original || original.deleted_at || original.status_assinatura === 'assinado' || !original.arquivo_id || !original.funcionario_id) throw new Error('Documento de funcionário inválido para digitalização.')
     const originalFile = this.db.get('arquivos', original.arquivo_id)
-    if (!originalFile?.caminho || !fs.existsSync(originalFile.caminho)) throw new Error('Arquivo original não encontrado.')
+    if (!originalFile?.caminho || originalFile.deleted_at || !fs.existsSync(originalFile.caminho)) throw new Error('Arquivo original não encontrado.')
     this.fileService.assertManagedPath(originalFile.caminho)
+    managedDestination(this.fileService, originalFile.caminho)
     const destination = managedDestination(this.fileService, signedDestinationFor(originalFile.caminho))
-    const existingSigned = this.latestSigned(original.id)
+    let existingSigned = this.latestSigned(original.id)
     if (fs.existsSync(destination) && !replace) return { conflict: true, path: destination, existingDocumentId: existingSigned?.id || null }
 
     fs.mkdirSync(path.dirname(destination), { recursive: true })
     const part = `${destination}.part-${crypto.randomUUID()}`
+    let archive = null
+    let originalRemoved = false
+    let published = false
+    let document
     try {
       await this.makePdf(session, part)
-      if (replace) this.archiveExisting(destination, existingSigned)
-      fs.renameSync(part, destination)
-      const stat = fs.statSync(destination)
-      const file = this.db.save('arquivos', {
-        nome_original: path.basename(destination), nome_armazenado: path.basename(destination), caminho: destination,
-        tamanho: stat.size, extensao: '.pdf', mime_type: 'application/pdf', hash: sha256(destination), origem: 'digitalizado_scanner'
-      })
-      const version = this.nextSignedVersion(original.id)
-      const document = this.db.save('documentos', {
-        arquivo_id: file.id,
-        empresa_id: original.empresa_id,
-        obra_id: original.obra_id,
-        frente_id: original.frente_id,
-        funcionario_id: original.funcionario_id,
-        categoria: original.categoria,
-        titulo: original.titulo,
-        status_assinatura: 'assinado',
-        documento_origem_id: original.id,
-        versao: version,
-        observacoes: 'Versão assinada digitalizada pelo scanner no Fluxo DRE.'
-      })
-      await this.discard({ sessionId: session.id })
-      return { conflict: false, path: destination, document }
+      this.assertActive(signal)
+      // Recheck after PDF generation, before synchronous publication and DB commit.
+      managedDestination(this.fileService, destination)
+      existingSigned = this.latestSigned(original.id)
+      if (fs.existsSync(destination) && !replace) return { conflict: true, path: destination, existingDocumentId: existingSigned?.id || null }
+      document = this.db.db.transaction(() => {
+        if (fs.existsSync(destination)) {
+          const candidate = managedDestination(this.fileService, firstAvailableArchive(destination, existingSigned?.versao || 1))
+          fs.copyFileSync(destination, candidate, fs.constants.COPYFILE_EXCL)
+          archive = candidate
+          fs.unlinkSync(destination)
+          originalRemoved = true
+          if (existingSigned?.arquivo_registro_id && path.resolve(existingSigned.arquivo_caminho) === path.resolve(destination)) {
+            const file = this.db.get('arquivos', existingSigned.arquivo_registro_id)
+            this.db.save('arquivos', { ...file, nome_original: path.basename(archive), nome_armazenado: path.basename(archive), caminho: archive })
+          }
+        }
+        // Exclusive creation never silently overwrites a file created by another writer.
+        fs.copyFileSync(part, destination, fs.constants.COPYFILE_EXCL)
+        published = true
+        const file = this.db.save('arquivos', {
+          nome_original: path.basename(destination), nome_armazenado: path.basename(destination), caminho: destination,
+          tamanho: fs.statSync(destination).size, extensao: '.pdf', mime_type: 'application/pdf', hash: sha256(destination), origem: 'digitalizado_scanner'
+        })
+        return this.db.save('documentos', {
+          arquivo_id: file.id,
+          empresa_id: original.empresa_id,
+          obra_id: original.obra_id,
+          frente_id: original.frente_id,
+          funcionario_id: original.funcionario_id,
+          categoria: original.categoria,
+          titulo: original.titulo,
+          status_assinatura: 'assinado',
+          documento_origem_id: original.id,
+          versao: this.nextSignedVersion(original.id),
+          observacoes: 'Versão assinada digitalizada pelo scanner no Fluxo DRE.'
+        })
+      })()
     } catch (error) {
-      fs.rmSync(part, { force: true })
+      // SQLite rolls back its transaction; compensate the filesystem separately.
+      try {
+        if (published) fs.rmSync(destination, { force: true })
+        if (originalRemoved) fs.copyFileSync(archive, destination, fs.constants.COPYFILE_EXCL)
+        if (archive) fs.rmSync(archive, { force: true })
+      } catch (recoveryError) {
+        throw new Error(`Falha ao salvar e restaurar o arquivo. A versão anterior foi preservada em ${archive || destination}. ${error.message}; ${recoveryError.message}`, { cause: error })
+      }
       throw error
+    } finally {
+      try { fs.rmSync(part, { force: true }) } catch (error) { console.error('Não foi possível limpar o PDF temporário.', error) }
     }
+    // Cleanup failure must not turn an already committed save into a failed save.
+    session.cancelled = true
+    try { this.clearSession(session) } catch (error) { console.error('Não foi possível limpar a sessão salva.', error) }
+    return { conflict: false, path: destination, document }
   }
 
-  dispose() {
-    for (const sessionId of [...this.sessions.keys()]) this.discard({ sessionId })
-    try {
-      if (fs.existsSync(this.cacheDir) && fs.readdirSync(this.cacheDir).length === 0) fs.rmdirSync(this.cacheDir)
-    } catch {}
+  async dispose() {
+    this.disposed = true
+    await Promise.all([...this.sessions.keys()].map((sessionId) => this.discard({ sessionId })))
+    const script = path.join(this.cacheDir, 'wia-scan.ps1')
+    fs.rmSync(script, { force: true })
+    if (fs.existsSync(this.cacheDir) && fs.readdirSync(this.cacheDir).length === 0) fs.rmdirSync(this.cacheDir)
   }
+
 }
 
 module.exports = { ScannerService, signedDestinationFor, signedArchivePath, wiaScript }
