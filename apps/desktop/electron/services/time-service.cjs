@@ -214,18 +214,20 @@ class TimeService {
     const benefits=this.benefitRows(data.employee,data.point.competencia)
     const folders=this.fileService.employeeFolders(data.employee,company&&(company.nome_fantasia||company.razao_social))
     const parts=data.point.competencia.split('-'), monthlyFolder=path.join(folders.base,'Recibos',parts[0],parts[1]+' - '+MONTHS[Number(parts[1])-1])
-    fs.mkdirSync(monthlyFolder,{recursive:true})
-    const stamp=Date.now(), result={folder:monthlyFolder}
+    const unsignedFolder=path.join(monthlyFolder,'Não assinados'), signedFolder=path.join(monthlyFolder,'Assinados')
+    fs.mkdirSync(unsignedFolder,{recursive:true})
+    fs.mkdirSync(signedFolder,{recursive:true})
+    const stamp=Date.now(), result={folder:monthlyFolder,unsignedFolder,signedFolder}
     if(pointSelected) {
       const pointName='Ficha de ponto - '+data.point.competencia+' - '+sanitizeName(data.employee.nome)+' - '+stamp+'.pdf'
-      const pointPath=path.join(monthlyFolder,pointName)
+      const pointPath=path.join(unsignedFolder,pointName)
       await this.printHtml(this.pointHtml(data,company,cargo),pointPath)
       const pointDoc=this.registerPdf(data.employee,'folha_ponto','Ficha de ponto - '+data.point.competencia,pointPath)
       result.point={...pointDoc,path:pointPath}
     }
     if(receiptsSelected) {
       const receiptName='Recibos de benefícios - '+data.point.competencia+' - '+sanitizeName(data.employee.nome)+' - '+stamp+'.pdf'
-      const receiptPath=path.join(monthlyFolder,receiptName)
+      const receiptPath=path.join(unsignedFolder,receiptName)
       await this.printHtml(this.receiptHtml(data,company,cargo,benefits,payload.paymentDate),receiptPath)
       const receiptDoc=this.registerPdf(data.employee,'recibos_beneficios','Recibos de benefícios - '+data.point.competencia,receiptPath)
       result.receipt={...receiptDoc,path:receiptPath}

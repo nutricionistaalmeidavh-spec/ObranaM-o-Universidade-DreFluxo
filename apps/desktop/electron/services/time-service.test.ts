@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const require=createRequire(import.meta.url)
 const {PDFDocument}=require('pdf-lib')
 const {DatabaseService}=require('./database.cjs')
+const {FileService}=require('./file-service.cjs')
 const {TimeService,mergeGeneratedPdfs,normalizeMhBenefits,buildPrintBatchHtml}=require('./time-service.cjs')
 const {parseEmployeeIdentity}=require('./import-service.cjs')
 const created:Array<{dir:string,db:any}>=[]
@@ -56,7 +57,7 @@ describe('folha de ponto mensal',()=>{
     expect(parseEmployeeIdentity('Carlos - ajudante')).toEqual({name:'Carlos',roleHint:'Ajudante de Encanador'})
   })
 
-  it('gera ficha e recibos juntos no mês, com identificação completa, sem mover arquivos antigos',async()=>{
+  it('gera ficha e recibos em Não assinados, prepara Assinados e preserva arquivos mensais antigos',async()=>{
     const {db,employee,base,time}=setup()
     time.autoFill({funcionario_id:employee.id,competencia:'2026-08'})
     const folha=db.save('folhas_pagamento',{empresa_id:employee.empresa_id,competencia:'2026-08',status:'aberta'})
@@ -64,20 +65,26 @@ describe('folha de ponto mensal',()=>{
     db.save('folha_lancamentos',{folha_id:folha.id,funcionario_id:employee.id,tipo:'beneficio_vale_alimentacao',descricao:'Vale-alimentação',natureza:'credito',quinzena:1,valor_centavos:45000})
     db.save('folha_lancamentos',{folha_id:folha.id,funcionario_id:employee.id,tipo:'beneficio_vale_transporte',descricao:'Vale-transporte',natureza:'credito',quinzena:1,valor_centavos:22000})
 
-    const legacy=path.join(base,'Mensal','2026','08 - agosto','Folha de ponto','arquivo-antigo.pdf')
-    fs.mkdirSync(path.dirname(legacy),{recursive:true})
+    const expectedFolder=path.join(base,'Recibos','2026','08 - agosto')
+    const legacy=path.join(expectedFolder,'arquivo-antigo.pdf')
+    fs.mkdirSync(expectedFolder,{recursive:true})
     fs.writeFileSync(legacy,'arquivo legado preservado','utf8')
 
     time.printHtml=async(html:string,destination:string)=>{fs.mkdirSync(path.dirname(destination),{recursive:true});fs.writeFileSync(destination,html,'utf8')}
     const result=await time.generateDocuments({funcionario_id:employee.id,competencia:'2026-08',paymentDate:'2026-08-15'})
 
-    const expectedFolder=path.join(base,'Recibos','2026','08 - agosto')
+    const unsignedFolder=path.join(expectedFolder,'Não assinados')
+    const signedFolder=path.join(expectedFolder,'Assinados')
     expect(result.folder).toBe(expectedFolder)
-    expect(path.dirname(result.point.path)).toBe(expectedFolder)
-    expect(path.dirname(result.receipt.path)).toBe(expectedFolder)
+    expect(result.unsignedFolder).toBe(unsignedFolder)
+    expect(result.signedFolder).toBe(signedFolder)
+    expect(path.dirname(result.point.path)).toBe(unsignedFolder)
+    expect(path.dirname(result.receipt.path)).toBe(unsignedFolder)
+    expect(fs.existsSync(unsignedFolder)).toBe(true)
+    expect(fs.existsSync(signedFolder)).toBe(true)
     expect(fs.existsSync(result.point.path)).toBe(true)
     expect(fs.existsSync(result.receipt.path)).toBe(true)
-    expect(fs.existsSync(legacy)).toBe(true)
+    expect(fs.readFileSync(legacy,'utf8')).toBe('arquivo legado preservado')
 
     const point=fs.readFileSync(result.point.path,'utf8')
     const receipt=fs.readFileSync(result.receipt.path,'utf8')
@@ -106,6 +113,30 @@ describe('folha de ponto mensal',()=>{
       {descricao:'Vale café',valor_centavos:18000},
       {descricao:'Vale-alimentação',valor_centavos:51000}
     ])
+  })
+
+  it('separa documentos mensais de homônimos por CPF e preserva assinados existentes',async()=>{
+    const {dir,db,employee}=setup()
+    const first=db.save('funcionarios',{...employee,nome:'Maicon Silva'})
+    const second=db.save('funcionarios',{...employee,id:undefined,nome:'Maicon Silva',cpf:'987.654.321-00'})
+    const files=new FileService({documentsDir:path.join(dir,'docs'),db})
+    const time=new TimeService({db,fileService:files})
+    time.printHtml=async(html:string,destination:string)=>{fs.writeFileSync(destination,html,'utf8')}
+    const options={competencia:'2026-09',point:true,receipts:false}
+    const a=await time.generateDocuments({...options,funcionario_id:first.id})
+    const signed=path.join(a.signedFolder,'assinatura-existente.pdf')
+    fs.writeFileSync(signed,'assinatura preservada')
+    const b=await time.generateDocuments({...options,funcionario_id:second.id})
+    expect(a.folder).not.toBe(b.folder)
+    expect(a.point.funcionario_id).toBe(first.id)
+    expect(b.point.funcionario_id).toBe(second.id)
+    expect(a.point.path).toContain('123.456.789-01')
+    expect(b.point.path).toContain('987.654.321-00')
+    expect(fs.existsSync(b.signedFolder)).toBe(true)
+    await time.generateDocuments({...options,funcionario_id:first.id})
+    expect(fs.readFileSync(signed,'utf8')).toBe('assinatura preservada')
+    expect(fs.readFileSync(a.point.path,'utf8')).toContain('123.456.789-01')
+    expect(fs.readFileSync(b.point.path,'utf8')).toContain('987.654.321-00')
   })
 
   it('gera somente os tipos selecionados sem duplicar o outro documento',async()=>{

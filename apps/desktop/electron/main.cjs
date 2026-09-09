@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, dialog, shell, Menu, safeStorage } = requir
 const path = require('node:path')
 const { DatabaseService } = require('./services/database-safe.cjs')
 const { FileService } = require('./services/file-service.cjs')
+const { ManagedDirectoryService } = require('./services/managed-directory-service.cjs')
+const { DocumentExplorerContextService } = require('./services/document-explorer-context-service.cjs')
 const { BackupService } = require('./services/backup-service.cjs')
 const { ImportService } = require('./services/import-service.cjs')
 const { DocumentService } = require('./services/document-service.cjs')
@@ -9,6 +11,7 @@ const { PayrollService } = require('./services/payroll-service.cjs')
 const { DocumentRootService } = require('./services/document-root-service.cjs')
 const { CatalogService } = require('./services/catalog-service.cjs')
 const { TimeService } = require('./services/time-service.cjs')
+const { ScannerService } = require('./services/scanner-service.cjs')
 const { WorkImportService } = require('./services/work-import-service.cjs')
 const { UniversalImportService } = require('./services/universal-import-service.cjs')
 const { WorksService } = require('./services/works-service.cjs')
@@ -30,22 +33,57 @@ function resolvePaths() {
   return { dataDir, documentsDir: path.join(dataDir, 'documentos'), migrationsDir: path.join(app.getAppPath(), 'database', 'migrations') }
 }
 
+function affectedRegisteredFiles(db, target) {
+  const prefix = `${target}${path.sep}`
+  return db.db.prepare('SELECT id,caminho FROM arquivos').all().filter((row) => row.caminho === target || String(row.caminho).startsWith(prefix))
+}
+
+function syncRegisteredPaths(db, previous, next) {
+  const rows = affectedRegisteredFiles(db, previous)
+  if (!rows.length) return
+  db.db.transaction(() => {
+    for (const row of rows) {
+      const suffix = row.caminho === previous ? '' : row.caminho.slice(previous.length)
+      const nextPath = `${next}${suffix}`
+      db.db.prepare('UPDATE arquivos SET caminho=?,nome_original=?,nome_armazenado=? WHERE id=?').run(nextPath, path.basename(nextPath), path.basename(nextPath), row.id)
+    }
+  })()
+}
+
+function removeRegisteredPaths(db, target) {
+  const rows = affectedRegisteredFiles(db, target)
+  if (!rows.length) return
+  db.db.transaction(() => {
+    for (const row of rows) {
+      db.db.prepare("UPDATE documentos SET arquivo_id=NULL,deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP) WHERE arquivo_id=?").run(row.id)
+      db.db.prepare('DELETE FROM arquivos WHERE id=?').run(row.id)
+    }
+  })()
+}
+
 function createServices() {
   const paths = resolvePaths()
   const db = new DatabaseService(paths)
   db.open()
   const files = new FileService({ documentsDir: paths.documentsDir, db })
   const documentRoot = new DocumentRootService({ db, files, defaultDir: paths.documentsDir })
+  const explorer = new ManagedDirectoryService({
+    roots: { documents: () => documentRoot.getRoot() }, shell, dialog,
+    onPathChanged: (previous, next) => syncRegisteredPaths(db, previous, next),
+    onPathRemoved: (target) => removeRegisteredPaths(db, target)
+  })
+  const explorerContext = new DocumentExplorerContextService({ db, explorer, rootId: 'documents' })
   const product = new ProductService({ db })
   const uiPreferences = new UiPreferencesService({ db })
   return {
-    paths, db, files, documentRoot,
+    paths, db, files, documentRoot, explorer, explorerContext,
     backup: new BackupService({ db, ...paths }),
     importer: new ImportService({ db }),
     documents: new DocumentService({ db, fileService: files, dialog }),
     payroll: new PayrollService({ db }),
     catalog: new CatalogService({ db }),
     time: new TimeService({ db, fileService: files }),
+    scanner: new ScannerService({ db, fileService: files, dataDir: paths.dataDir }),
     workImport: new WorkImportService({ db }),
     universalImport: new UniversalImportService({ db }),
     works: new WorksService({ db }), planning: new PlanningService({ db }), field: new FieldService({ db }),
@@ -96,6 +134,18 @@ function registerIpc() {
   ipcMain.handle('files:open-folder', envelope(() => services.documentRoot.openRoot()))
   ipcMain.handle('files:choose-root', envelope(() => services.documentRoot.chooseRoot()))
   ipcMain.handle('files:get-root', envelope(() => services.documentRoot.getRoot()))
+  ipcMain.handle('explorer:list', envelope((payload) => services.explorer.list(payload)))
+  ipcMain.handle('explorer:preview', envelope((payload) => services.explorer.preview(payload)))
+  ipcMain.handle('explorer:open', envelope((payload) => services.explorer.open(payload)))
+  ipcMain.handle('explorer:create-folder', envelope((payload) => services.explorer.createFolder(payload)))
+  ipcMain.handle('explorer:rename', envelope((payload) => services.explorer.rename(payload)))
+  ipcMain.handle('explorer:move', envelope((payload) => services.explorer.move(payload)))
+  ipcMain.handle('explorer:remove', envelope((payload) => services.explorer.remove(payload)))
+  ipcMain.handle('explorer:import', envelope((payload) => services.explorer.importFiles(payload)))
+  ipcMain.handle('explorer:pick-import', envelope((payload) => services.explorer.pickImportFiles(payload)))
+  ipcMain.handle('explorer:context', envelope((payload) => services.explorerContext.context(payload)))
+  ipcMain.handle('explorer:index', envelope((payload) => services.explorerContext.index(payload)))
+  ipcMain.handle('explorer:move-to-signed', envelope((payload) => services.explorerContext.moveToSigned(payload)))
   ipcMain.handle('documents:delete', envelope((payload) => services.files.deleteDocument(payload)))
   ipcMain.handle('documents:generate', envelope((payload) => services.documents.generate(payload)))
   ipcMain.handle('documents:templates', envelope(() => services.documents.listTemplates()))
@@ -131,6 +181,12 @@ function registerIpc() {
   ipcMain.handle('time:save', envelope((payload) => services.time.save(payload)))
   ipcMain.handle('time:generate', envelope((payload) => services.time.generateDocuments(payload)))
   ipcMain.handle('time:generate-all', envelope((payload) => services.time.generateForAll(payload)))
+  ipcMain.handle('scanner:capabilities', envelope(() => services.scanner.capabilities()))
+  ipcMain.handle('scanner:start', envelope((payload) => services.scanner.start(payload)))
+  ipcMain.handle('scanner:add-page', envelope((payload) => services.scanner.addPage(payload)))
+  ipcMain.handle('scanner:redo-page', envelope((payload) => services.scanner.redoPage(payload)))
+  ipcMain.handle('scanner:discard', envelope((payload) => services.scanner.discard(payload)))
+  ipcMain.handle('scanner:save-signed', envelope((payload) => services.scanner.saveSigned(payload)))
   ipcMain.handle('catalog:list', envelope(() => services.catalog.list()))
   ipcMain.handle('catalog:save-cargo', envelope((data) => services.catalog.saveCargo(data)))
   ipcMain.handle('catalog:save-benefit', envelope((data) => services.catalog.saveBenefit(data)))
@@ -173,6 +229,20 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('before-quit', () => services?.db?.close())
+let shutdownPromise = null
+let shutdownComplete = false
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  if (shutdownPromise) return
+  shutdownPromise = (async () => {
+    try { await services?.scanner?.dispose() }
+    catch (error) { console.error('Falha ao encerrar o scanner.', error) }
+    finally {
+      try { services?.db?.close() }
+      finally { shutdownComplete = true; app.quit() }
+    }
+  })()
+})
 process.on('uncaughtException', (error) => { console.error(error); dialog.showErrorBox('Erro inesperado', error.message) })
 process.on('unhandledRejection', (error) => console.error(error))
