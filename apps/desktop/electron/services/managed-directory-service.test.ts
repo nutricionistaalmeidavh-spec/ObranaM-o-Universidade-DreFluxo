@@ -6,11 +6,11 @@ import { ManagedDirectoryService } from './managed-directory-service.cjs'
 
 const created: string[] = []
 
-function setup() {
+function setup(options: { maxPreviewBytes?: number } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxo-explorer-'))
   created.push(root)
   const openPath = vi.fn(async () => '')
-  const service = new ManagedDirectoryService({ roots: { documents: () => root }, shell: { openPath } })
+  const service = new ManagedDirectoryService({ roots: { documents: () => root }, shell: { openPath }, maxPreviewBytes: options.maxPreviewBytes })
   return { root, openPath, service }
 }
 
@@ -69,5 +69,32 @@ describe('ManagedDirectoryService', () => {
     expect(openPath).toHaveBeenCalledWith(folder)
     await expect(service.open({ rootId: 'documents', relativePath: 'inexistente' })).rejects.toThrow('não encontrado')
     await expect(service.open({ rootId: 'unknown', relativePath: '' })).rejects.toThrow('não autorizada')
+  })
+
+  it('gera preview interno somente para PDF e imagens e retorna metadados relativos', () => {
+    const { root, service } = setup()
+    fs.writeFileSync(path.join(root, 'contrato.pdf'), Buffer.from('%PDF-1.4\npreview'))
+    fs.writeFileSync(path.join(root, 'foto.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]))
+    fs.writeFileSync(path.join(root, 'dados.csv'), 'a,b\n1,2', 'utf8')
+
+    const pdf = service.preview({ rootId: 'documents', relativePath: 'contrato.pdf' })
+    const image = service.preview({ rootId: 'documents', relativePath: 'foto.png' })
+    const unsupported = service.preview({ rootId: 'documents', relativePath: 'dados.csv' })
+
+    expect(pdf).toMatchObject({ name: 'contrato.pdf', relativePath: 'contrato.pdf', extension: '.pdf', previewKind: 'pdf', mimeType: 'application/pdf' })
+    expect(pdf.dataUrl).toMatch(/^data:application\/pdf;base64,/)
+    expect(image).toMatchObject({ name: 'foto.png', previewKind: 'image', mimeType: 'image/png' })
+    expect(image.dataUrl).toMatch(/^data:image\/png;base64,/)
+    expect(unsupported).toMatchObject({ name: 'dados.csv', previewKind: 'unsupported', dataUrl: null })
+    expect(pdf).not.toHaveProperty('absolutePath')
+  })
+
+  it('não carrega conteúdo de preview acima do limite configurado', () => {
+    const { root, service } = setup({ maxPreviewBytes: 8 })
+    fs.writeFileSync(path.join(root, 'grande.pdf'), Buffer.from('%PDF-1.4-mais-que-oito'))
+
+    const result = service.preview({ rootId: 'documents', relativePath: 'grande.pdf' })
+
+    expect(result).toMatchObject({ previewKind: 'unsupported', dataUrl: null, previewBlockedReason: 'size' })
   })
 })
