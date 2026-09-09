@@ -1,9 +1,11 @@
+import { WorkContextProvider } from './hooks/useWorkContext'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { ReactNode, useEffect, useState } from 'react'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAsync } from './hooks/useAsync'
 import { CommandCenterShell, DashboardPage as CommandCenterDashboardPage, DrePage as CommandCenterDrePage, FinancePage as CommandCenterFinancePage } from './modules/command-center'
 import { ClassicAppShell, ClassicDashboardPage, ClassicDrePage, ClassicFinancePage } from './modules/classic-ui'
+import AiAssistantPage from './pages/AiAssistantPage'
 import PayrollPage from './pages/PayrollPage'
 import WorksPage from './pages/WorksPage'
 import BudgetPage from './pages/BudgetPage'
@@ -14,11 +16,13 @@ import DocumentsPage from './pages/DocumentsPage'
 import RegistriesPage from './pages/RegistriesPage'
 import ImportPage from './pages/ImportPage'
 import SettingsPage from './pages/SettingsPage'
+import SettingsHubPage from './pages/SettingsHubPage'
 import TimeSheetPage from './pages/TimeSheetPage'
 import WorkDetailPage from './pages/WorkDetailPage'
 import SchedulePage from './pages/SchedulePage'
 import DailyReportPage from './pages/DailyReportPage'
 import ProcurementPage from './pages/ProcurementPage'
+import ProcurementContractsHubPage from './pages/ProcurementContractsHubPage'
 import HrTemplatesPage from './pages/HrTemplatesPage'
 import RhHubPage from './pages/RhHubPage'
 import FrontsPage from './pages/FrontsPage'
@@ -37,7 +41,13 @@ export default function App() {
     }
     if (layoutPreference.data === 'command-center') {
       setCommandCenterStylesReady(false)
-      void import('./modules/command-center/command-center.css').finally(() => {
+      void Promise.all([
+        import('./modules/command-center/command-center.css'),
+        import('./modules/command-center/artisys-desktop.css'),
+        import('./modules/command-center/artisys-rh.css'),
+        import('./modules/command-center/artisys-operations.css'),
+        import('./modules/command-center/artisys-utilities.css'),
+      ]).finally(() => {
         if (active) setCommandCenterStylesReady(true)
       })
     }
@@ -53,32 +63,35 @@ export default function App() {
   const DrePage = isClassic ? ClassicDrePage : CommandCenterDrePage
   const FinancePage = isClassic ? ClassicFinancePage : CommandCenterFinancePage
 
-  return <ErrorBoundary><Shell><RouteBoundary><Routes>
+  return <ErrorBoundary><WorkContextProvider><Shell><RouteBoundary><Routes>
     <Route path="/" element={<DashboardPage/>}/>
+    <Route path="/assistente-ia" element={<AiAssistantPage/>}/>
     <Route path="/dre" element={<DrePage/>}/>
     <Route path="/financeiro" element={<FinancePage/>}/>
     <Route path="/folha" element={<PayrollPage/>}/>
+    <Route path="/orcamento" element={<BudgetPage/>}/>
+    <Route path="/medicoes" element={<MeasurementsPage/>}/>
+    <Route path="/compras-contratos" element={<ProcurementContractsHubPage/>}/>
+    <Route path="/compras" element={<ProcurementPage/>}/>
+    <Route path="/contratos" element={<ContractsPage/>}/>
+    <Route path="/cadastros" element={<RegistriesPage/>}/>
     <Route path="/obras" element={<WorksPage/>}/>
     <Route path="/obras/:id" element={<WorkDetailPage/>}/>
     <Route path="/frentes" element={<FrontsPage/>}/>
-    <Route path="/orcamento" element={<BudgetPage/>}/>
     <Route path="/planejamento" element={<SchedulePage/>}/>
     <Route path="/rdo" element={<DailyReportPage/>}/>
-    <Route path="/compras" element={<ProcurementPage/>}/>
-    <Route path="/contratos" element={<ContractsPage/>}/>
     <Route path="/tarefas" element={<TasksPage/>}/>
-    <Route path="/medicoes" element={<MeasurementsPage/>}/>
     <Route path="/rh" element={<RhHubPage/>}/>
     <Route path="/funcionarios" element={<EmployeesPage/>}/>
     <Route path="/registro-funcionario" element={<EmployeeRegistrationPage/>}/>
     <Route path="/ponto" element={<TimeSheetPage/>}/>
     <Route path="/rh/modelos" element={<HrTemplatesPage/>}/>
     <Route path="/documentos" element={<DocumentsPage/>}/>
-    <Route path="/cadastros" element={<RegistriesPage/>}/>
     <Route path="/importacao" element={<ImportPage/>}/>
-    <Route path="/configuracoes" element={<SettingsPage/>}/>
+    <Route path="/configuracoes" element={isClassic ? <SettingsPage/> : <SettingsHubPage/>}/>
+    <Route path="/configuracoes/sistema" element={<SettingsPage/>}/>
     <Route path="*" element={<Navigate to="/" replace/>}/>
-  </Routes></RouteBoundary></Shell></ErrorBoundary>
+  </Routes></RouteBoundary></Shell></WorkContextProvider></ErrorBoundary>
 }
 
 function RouteBoundary({ children }: { children: ReactNode }) {
