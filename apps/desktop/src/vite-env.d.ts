@@ -2,8 +2,10 @@
 type EntityApi = { list(filters?: Record<string, unknown>): Promise<any[]>; get(id: number): Promise<any>; save(data: Record<string, unknown>): Promise<any>; remove(id: number): Promise<boolean> }
 type ExplorerEntry = { name:string; relativePath:string; kind:'folder'|'file'|'link'; extension:string; size:number|null; modifiedAt:string; canOpen:boolean }
 type ExplorerDirectory = { rootId:string; name:string; relativePath:string; parentRelativePath:string|null; items:ExplorerEntry[] }
+type ExplorerPreview = { rootId:string; name:string; relativePath:string; extension:string; size:number; modifiedAt:string; previewKind:'pdf'|'image'|'unsupported'; mimeType:string|null; dataUrl:string|null; previewBlockedReason:'size'|'type'|null }
 type ExplorerApi = {
   list(rootId:string,relativePath?:string):Promise<ExplorerDirectory>
+  preview(rootId:string,relativePath:string):Promise<ExplorerPreview>
   open(rootId:string,relativePath?:string):Promise<string>
 }
 type ScannerMode = 'grayscale'|'color'
