@@ -2,15 +2,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ManagedDirectoryService } from './managed-directory-service.cjs'
+import { INTERNAL_TRASH_DIR, ManagedDirectoryService } from './managed-directory-service.cjs'
 
 const created: string[] = []
 
-function setup(options: { maxPreviewBytes?: number } = {}) {
+function setup(options: { maxPreviewBytes?: number; onPathRemoved?: (target:string) => void } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxo-explorer-'))
   created.push(root)
   const openPath = vi.fn(async () => '')
-  const service = new ManagedDirectoryService({ roots: { documents: () => root }, shell: { openPath }, maxPreviewBytes: options.maxPreviewBytes })
+  const service = new ManagedDirectoryService({ roots: { documents: () => root }, shell: { openPath }, maxPreviewBytes: options.maxPreviewBytes, onPathRemoved: options.onPathRemoved })
   return { root, openPath, service }
 }
 
@@ -129,6 +129,27 @@ describe('ManagedDirectoryService', () => {
     expect(fs.existsSync(path.join(root, 'Temporário'))).toBe(false)
   })
 
+  it('restaura o item físico quando a atualização de registros falha', () => {
+    const onPathRemoved = vi.fn(() => { throw new Error('Falha SQLite simulada') })
+    const { root, service } = setup({ onPathRemoved })
+    const file = path.join(root, 'contrato.pdf')
+    fs.writeFileSync(file, 'conteúdo preservado', 'utf8')
+
+    expect(() => service.remove({ rootId: 'documents', relativePath: 'contrato.pdf' })).toThrow('Falha SQLite simulada')
+    expect(onPathRemoved).toHaveBeenCalledWith(file)
+    expect(fs.readFileSync(file, 'utf8')).toBe('conteúdo preservado')
+    expect(fs.existsSync(path.join(root, INTERNAL_TRASH_DIR))).toBe(false)
+  })
+
+  it('não expõe a área interna de staging no explorador', () => {
+    const { root, service } = setup()
+    fs.mkdirSync(path.join(root, INTERNAL_TRASH_DIR))
+    fs.writeFileSync(path.join(root, INTERNAL_TRASH_DIR, 'pendente.txt'), 'x')
+
+    expect(service.list({ rootId: 'documents' }).items.some((item:any) => item.name === INTERNAL_TRASH_DIR)).toBe(false)
+    expect(() => service.list({ rootId: 'documents', relativePath: INTERNAL_TRASH_DIR })).toThrow(/reservado/i)
+  })
+
   it('importa arquivos externos para uma pasta autorizada sem sobrescrever e sem importar symlink', () => {
     const { root, service } = setup()
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxo-import-source-'))
@@ -157,6 +178,7 @@ describe('ManagedDirectoryService', () => {
     fs.symlinkSync(outsideFile, path.join(root, 'link.txt'))
 
     expect(() => service.createFolder({ rootId: 'documents', parentRelativePath: '', name: '../escape' })).toThrow('Nome inválido')
+    expect(() => service.createFolder({ rootId: 'documents', parentRelativePath: '', name: INTERNAL_TRASH_DIR })).toThrow('Nome inválido')
     expect(() => service.rename({ rootId: 'documents', relativePath: 'arquivo.txt', newName: 'A/B.txt' })).toThrow('Nome inválido')
     expect(() => service.remove({ rootId: 'documents', relativePath: '' })).toThrow('pasta raiz')
     expect(() => service.rename({ rootId: 'documents', relativePath: 'link.txt', newName: 'novo.txt' })).toThrow(/Atalhos simbólicos|fora da área gerenciada/i)

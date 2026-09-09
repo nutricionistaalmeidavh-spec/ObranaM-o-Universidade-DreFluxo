@@ -1,7 +1,9 @@
 const fs = require('node:fs')
 const path = require('node:path')
+const crypto = require('node:crypto')
 
 const DEFAULT_MAX_PREVIEW_BYTES = 12 * 1024 * 1024
+const INTERNAL_TRASH_DIR = '.fluxo-dre-delete-staging'
 const PREVIEW_TYPES = new Map([
   ['.pdf', { previewKind: 'pdf', mimeType: 'application/pdf' }],
   ['.png', { previewKind: 'image', mimeType: 'image/png' }],
@@ -18,7 +20,7 @@ function portablePath(value) { return String(value || '').split(path.sep).join('
 function escapesRoot(relative) { return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) }
 function validateName(value) {
   const name = String(value || '')
-  if (!name || name === '.' || name === '..' || name !== name.trim() || INVALID_NAME.test(name) || /[. ]$/.test(name) || RESERVED_NAME.test(name)) throw new Error('Nome inválido.')
+  if (!name || name === '.' || name === '..' || name === INTERNAL_TRASH_DIR || name !== name.trim() || INVALID_NAME.test(name) || /[. ]$/.test(name) || RESERVED_NAME.test(name)) throw new Error('Nome inválido.')
   return name
 }
 
@@ -42,6 +44,7 @@ class ManagedDirectoryService {
     if (typeof relativePath !== 'string' || path.isAbsolute(relativePath)) throw new Error('Caminho inválido.')
     const segments = relativePath.split(/[\\/]+/).filter((segment) => segment && segment !== '.')
     if (segments.some((segment) => segment === '..')) throw new Error('Caminho fora da área gerenciada.')
+    if (segments.some((segment) => segment === INTERNAL_TRASH_DIR)) throw new Error('Caminho reservado ao sistema.')
     return segments.join(path.sep)
   }
   resolve(rootId, relativePath = '') {
@@ -69,7 +72,7 @@ class ManagedDirectoryService {
     if (!resolved.stat.isDirectory()) throw new Error('O caminho informado não é uma pasta.')
     const parentNative = resolved.relativeNative ? path.dirname(resolved.relativeNative) : ''
     const parentRelativePath = !resolved.relativeNative ? null : portablePath(parentNative === '.' ? '' : parentNative)
-    const items = fs.readdirSync(resolved.target, { withFileTypes: true }).map((entry) => {
+    const items = fs.readdirSync(resolved.target, { withFileTypes: true }).filter((entry) => entry.name !== INTERNAL_TRASH_DIR).map((entry) => {
       const absolute = path.join(resolved.target, entry.name), stat = fs.lstatSync(absolute), isLink = stat.isSymbolicLink()
       const kind = isLink ? 'link' : entry.isDirectory() ? 'folder' : entry.isFile() ? 'file' : 'link'
       return { name: entry.name, relativePath: portablePath(path.relative(resolved.root, absolute)), kind, extension: kind === 'file' ? path.extname(entry.name).toLowerCase() : '', size: kind === 'file' ? stat.size : null, modifiedAt: stat.mtime.toISOString(), canOpen: !isLink && (entry.isDirectory() || entry.isFile()) }
@@ -117,10 +120,33 @@ class ManagedDirectoryService {
     try { this.onPathChanged?.(source.target, target) } catch (error) { try { fs.renameSync(target, source.target) } catch {}; throw error }
     return { name: path.basename(target), relativePath: portablePath(path.relative(source.root, target)) }
   }
+  cleanupStaging(stagingRoot) {
+    try { if (fs.existsSync(stagingRoot) && fs.readdirSync(stagingRoot).length === 0) fs.rmdirSync(stagingRoot) } catch {}
+  }
   remove({ rootId, relativePath, recursive = false } = {}) {
     const source = this.resolve(rootId, relativePath); this.assertMutableSource(source)
-    if (source.stat.isDirectory()) { const nonEmpty = fs.readdirSync(source.target).length > 0; if (nonEmpty && !recursive) throw new Error('A pasta não está vazia.'); fs.rmSync(source.target, { recursive: Boolean(recursive), force: false }) } else fs.unlinkSync(source.target)
-    this.onPathRemoved?.(source.target)
+    if (source.stat.isDirectory() && fs.readdirSync(source.target).length > 0 && !recursive) throw new Error('A pasta não está vazia.')
+
+    const stagingRoot = path.join(source.root, INTERNAL_TRASH_DIR)
+    fs.mkdirSync(stagingRoot, { recursive: true })
+    const staged = path.join(stagingRoot, `${Date.now()}-${crypto.randomUUID()}-${path.basename(source.target)}`)
+    fs.renameSync(source.target, staged)
+
+    try {
+      this.onPathRemoved?.(source.target)
+    } catch (error) {
+      try {
+        fs.renameSync(staged, source.target)
+        this.cleanupStaging(stagingRoot)
+      } catch (recoveryError) {
+        throw new Error(`Falha ao atualizar o banco e restaurar o item. O conteúdo foi preservado em ${staged}. ${error?.message || error}; ${recoveryError?.message || recoveryError}`, { cause: error })
+      }
+      throw error
+    }
+
+    try { fs.rmSync(staged, { recursive: source.stat.isDirectory(), force: false }) }
+    catch (error) { console.error(`Exclusão lógica concluída, mas a limpeza física pendente ficou em ${staged}.`, error) }
+    this.cleanupStaging(stagingRoot)
     return true
   }
   importFiles({ rootId, destinationRelativePath = '', sourcePaths } = {}) {
@@ -152,4 +178,4 @@ class ManagedDirectoryService {
     return this.shell.openPath(resolved.target)
   }
 }
-module.exports = { ManagedDirectoryService, portablePath, validateName, DEFAULT_MAX_PREVIEW_BYTES }
+module.exports = { ManagedDirectoryService, portablePath, validateName, DEFAULT_MAX_PREVIEW_BYTES, INTERNAL_TRASH_DIR }

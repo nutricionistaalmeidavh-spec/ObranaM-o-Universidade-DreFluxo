@@ -1,5 +1,6 @@
 const fs = require('node:fs')
 const path = require('node:path')
+const { INTERNAL_TRASH_DIR } = require('./managed-directory-service.cjs')
 
 function normalize(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -118,7 +119,7 @@ class DocumentExplorerContextService {
       this.db.db.transaction(() => {
         const files = this.db.db.prepare('SELECT id FROM arquivos WHERE caminho=?').all(source.target)
         for (const file of files) {
-          this.db.db.prepare('UPDATE arquivos SET caminho=?,nome_original=?,nome_armazenado=? WHERE id=?').run(destination, path.basename(destination), path.basename(destination), file.id)
+          this.db.db.prepare('UPDATE arquivos SET caminho=?,nome_armazenado=? WHERE id=?').run(destination, path.basename(destination), file.id)
           this.db.db.prepare("UPDATE documentos SET status_assinatura='assinado' WHERE arquivo_id=? AND deleted_at IS NULL").run(file.id)
         }
       })()
@@ -132,22 +133,24 @@ class DocumentExplorerContextService {
     return { ...refreshed, relativePath: relative, status: 'assinado' }
   }
 
-  index({ rootId = this.rootId } = {}) {
+  async index({ rootId = this.rootId } = {}) {
     const root = this.explorer.rootFor(rootId)
     const items = []
-    const walk = (folder) => {
-      for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+    const walk = async (folder) => {
+      const entries = await fs.promises.readdir(folder, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name === INTERNAL_TRASH_DIR) continue
         const absolute = path.join(folder, entry.name)
-        const stat = fs.lstatSync(absolute)
+        const stat = await fs.promises.lstat(absolute)
         if (stat.isSymbolicLink()) continue
-        if (entry.isDirectory()) walk(absolute)
+        if (entry.isDirectory()) await walk(absolute)
         else if (entry.isFile()) {
           const relativePath = portable(path.relative(root, absolute))
           try { items.push(this.context({ rootId, relativePath })) } catch {}
         }
       }
     }
-    walk(root)
+    await walk(root)
     items.sort((a, b) => String(a.employee?.nome || '').localeCompare(String(b.employee?.nome || ''), 'pt-BR') || String(a.competencia || '').localeCompare(String(b.competencia || '')) || a.relativePath.localeCompare(b.relativePath, 'pt-BR'))
     const unique = (values) => [...new Set(values.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'))
     const employeeMap = new Map()

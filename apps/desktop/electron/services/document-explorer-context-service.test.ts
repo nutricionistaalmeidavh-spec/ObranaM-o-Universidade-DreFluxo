@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseService } from './database.cjs'
 import { ManagedDirectoryService } from './managed-directory-service.cjs'
 import { DocumentExplorerContextService } from './document-explorer-context-service.cjs'
@@ -36,6 +36,7 @@ function register(db:any, employee:any, absolutePath:string, category='folha_pon
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const item of created.splice(0)) { item.db.close(); fs.rmSync(item.dir, { recursive: true, force: true }) }
 })
 
@@ -68,7 +69,7 @@ describe('DocumentExplorerContextService', () => {
     expect(result.employee.id).toBe(first.id)
   })
 
-  it('move versão não assinada para Assinados, atualiza banco e versiona conflito sem sobrescrever', () => {
+  it('move versão não assinada para Assinados, atualiza banco, preserva nome_original e versiona conflito', () => {
     const { docsRoot, db, first, context } = setup()
     const source = monthlyPath(docsRoot, first.nome, first.cpf, 'Não assinados', 'Ficha.pdf')
     const { arquivo, document } = register(db, first, source)
@@ -85,16 +86,22 @@ describe('DocumentExplorerContextService', () => {
     const arquivoAtual = db.get('arquivos', arquivo.id)
     const documentoAtual = db.get('documentos', document.id)
     expect(arquivoAtual.caminho).toBe(path.join(signedFolder, 'Ficha (2).pdf'))
+    expect(arquivoAtual.nome_armazenado).toBe('Ficha (2).pdf')
+    expect(arquivoAtual.nome_original).toBe('Ficha.pdf')
     expect(documentoAtual.status_assinatura).toBe('assinado')
   })
 
-  it('gera índice organizável por funcionário, competência, categoria e status', () => {
+  it('gera índice organizável de forma assíncrona sem usar readdirSync', async () => {
     const { docsRoot, db, first, second, context } = setup()
     register(db, first, monthlyPath(docsRoot, first.nome, first.cpf, 'Não assinados', 'Ficha.pdf'), 'folha_ponto')
     register(db, second, monthlyPath(docsRoot, second.nome, second.cpf, 'Assinados', 'Recibos.pdf'), 'recibos_beneficios')
+    const syncWalk = vi.spyOn(fs, 'readdirSync').mockImplementation(() => { throw new Error('readdirSync não deve ser usado no índice') })
 
-    const index = context.index()
+    const pending = context.index()
+    expect(pending).toBeInstanceOf(Promise)
+    const index = await pending
 
+    expect(syncWalk).not.toHaveBeenCalled()
     expect(index.items).toHaveLength(2)
     expect(index.items.map((item:any) => item.employee?.id).sort()).toEqual([first.id, second.id].sort())
     expect(index.facets.competencias).toEqual(['2026-09'])
