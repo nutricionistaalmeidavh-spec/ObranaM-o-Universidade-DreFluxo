@@ -4,6 +4,7 @@ const { DatabaseService } = require('./services/database-safe.cjs')
 const { FileService } = require('./services/file-service.cjs')
 const { ManagedDirectoryService } = require('./services/managed-directory-service.cjs')
 const { DocumentExplorerContextService } = require('./services/document-explorer-context-service.cjs')
+const { syncRegisteredPaths, removeRegisteredPaths } = require('./services/file-registry-paths.cjs')
 const { BackupService } = require('./services/backup-service.cjs')
 const { ImportService } = require('./services/import-service.cjs')
 const { DocumentService } = require('./services/document-service.cjs')
@@ -31,34 +32,6 @@ let services
 function resolvePaths() {
   const dataDir = process.env.FLUXO_DRE_DATA_DIR || path.join(app.getPath('appData'), 'fluxo-dre')
   return { dataDir, documentsDir: path.join(dataDir, 'documentos'), migrationsDir: path.join(app.getAppPath(), 'database', 'migrations') }
-}
-
-function affectedRegisteredFiles(db, target) {
-  const prefix = `${target}${path.sep}`
-  return db.db.prepare('SELECT id,caminho FROM arquivos').all().filter((row) => row.caminho === target || String(row.caminho).startsWith(prefix))
-}
-
-function syncRegisteredPaths(db, previous, next) {
-  const rows = affectedRegisteredFiles(db, previous)
-  if (!rows.length) return
-  db.db.transaction(() => {
-    for (const row of rows) {
-      const suffix = row.caminho === previous ? '' : row.caminho.slice(previous.length)
-      const nextPath = `${next}${suffix}`
-      db.db.prepare('UPDATE arquivos SET caminho=?,nome_original=?,nome_armazenado=? WHERE id=?').run(nextPath, path.basename(nextPath), path.basename(nextPath), row.id)
-    }
-  })()
-}
-
-function removeRegisteredPaths(db, target) {
-  const rows = affectedRegisteredFiles(db, target)
-  if (!rows.length) return
-  db.db.transaction(() => {
-    for (const row of rows) {
-      db.db.prepare("UPDATE documentos SET arquivo_id=NULL,deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP) WHERE arquivo_id=?").run(row.id)
-      db.db.prepare('DELETE FROM arquivos WHERE id=?').run(row.id)
-    }
-  })()
 }
 
 function createServices() {
@@ -191,7 +164,7 @@ function registerIpc() {
   ipcMain.handle('catalog:save-cargo', envelope((data) => services.catalog.saveCargo(data)))
   ipcMain.handle('catalog:save-benefit', envelope((data) => services.catalog.saveBenefit(data)))
   ipcMain.handle('catalog:save-link', envelope((data) => services.catalog.saveLink(data)))
-  ipcMain.handle('catalog:deactivate', envelope((data) => services.catalog.deactivate(data.type, data.id)))
+  ipcMain.handle('catalog:deactivate', envelope((data) => services.catalog.deactivate(data.type,id)))
   ipcMain.handle('online:state', envelope(() => services.online.state()))
   ipcMain.handle('online:start', envelope((payload) => services.online.start(payload)))
   ipcMain.handle('online:status', envelope(() => services.online.status()))
