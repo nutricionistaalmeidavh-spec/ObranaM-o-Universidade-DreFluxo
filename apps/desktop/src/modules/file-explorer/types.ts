@@ -31,6 +31,21 @@ export type ExplorerPreview = {
   previewBlockedReason: 'size' | 'type' | null
 }
 
+export type ExplorerEmployee = { id: number; nome: string; cpf: string | null }
+export type ExplorerDocumentContext = {
+  relativePath: string
+  employee: ExplorerEmployee | null
+  competencia: string | null
+  categoria: string | null
+  status: string
+  documentId: number | null
+  arquivoId: number | null
+}
+export type ExplorerDocumentIndex = {
+  items: ExplorerDocumentContext[]
+  facets: { employees: ExplorerEmployee[]; competencias: string[]; categorias: string[]; statuses: string[] }
+}
+
 export type FileExplorerProps = {
   rootId: string
   rootLabel?: string
