@@ -2,64 +2,44 @@
 
 Revisão: 2026-09-09
 
-Este documento registra o contrato da Entrega 0 e a fronteira implementada na Entrega 1 do explorador interno de arquivos. O objetivo é permitir evolução segura do gerenciador sem acoplar a interface a uma estrutura específica de RH, obras ou scanner.
+Este documento registra o estado final das **Entregas 0–6** do gerenciador interno de arquivos do Fluxo DRE. O explorador permanece reutilizável: a navegação e as operações de filesystem são genéricas; regras de funcionário, competência, assinatura e scanner ficam em uma camada documental separada.
 
 ## Raiz gerenciada
 
 A documentação física é controlada por `DocumentRootService`.
 
 - Raiz padrão: `%APPDATA%\\fluxo-dre\\documentos` no Windows.
-- A raiz pode ser alterada pelo usuário em Configurações.
-- A configuração é persistida em `configuracoes`, chave `documentos_pasta_raiz`.
+- Configurável pelo usuário em Configurações (`configuracoes.documentos_pasta_raiz`).
 - `FileService.documentsDir` acompanha a raiz configurada.
-- O banco continua registrando arquivos em `arquivos.caminho`; os registros de domínio apontam para `documentos.arquivo_id`.
+- O banco registra arquivos em `arquivos.caminho`; documentos apontam para `documentos.arquivo_id`.
+- O renderer trabalha com `rootId` + caminho relativo. Caminhos arbitrários do computador não são aceitos como destino.
 
-O explorador não recebe caminhos absolutos do renderer. A interface trabalha somente com um `rootId` autorizado e caminhos relativos.
+Root atualmente autorizada:
 
-## Estruturas físicas existentes
+```text
+documents → DocumentRootService.getRoot()
+```
 
-### Documentos de funcionários importados
+## Estruturas físicas preservadas
 
-`FileService.employeeFolders()` usa a identidade completa disponível, e não apenas o primeiro nome:
+### Funcionários
 
 ```text
 <raiz>/
   <empresa>/
     Funcionários/
       <nome> - <CPF ou ID>/
-        Não assinados/
-        Assinados/
         Documentação Geral/
+        Recibos/
+          YYYY/
+            MM - mês/
+              Não assinados/
+              Assinados/
 ```
 
-Isso preserva a separação entre funcionários homônimos quando CPF ou ID diferem.
+A identidade de contexto nunca é resolvida apenas pelo primeiro nome. O serviço usa o vínculo exato do banco quando existe e, para arquivos ainda não registrados, usa o CPF/ID presente na pasta do funcionário.
 
-### Documentos mensais de ponto e benefícios
-
-O fluxo mensal atual usa a base do funcionário e a competência e já prepara as duas pastas de assinatura:
-
-```text
-<funcionário>/
-  Recibos/
-    YYYY/
-      MM - mês/
-        Não assinados/
-        Assinados/
-```
-
-Novas fichas de ponto e recibos são gerados em `Não assinados`. `Assinados` é preparado como pasta irmã para o fluxo de digitalização. Arquivos mensais legados não são migrados nem apagados.
-
-A implementação do explorador é deliberadamente agnóstica à regra de negócio: ele lista o que estiver fisicamente presente sob a raiz autorizada, sem migrar, renomear ou reorganizar arquivos.
-
-### Scanner de versões assinadas
-
-`ScannerService` recebe um documento já gerenciado e calcula um destino dentro da mesma área de documentos. Quando o original está em `Não assinados`, a versão digitalizada é direcionada à pasta irmã `Assinados`; em outros casos, cria/usa `Assinados` junto ao diretório do original. O arquivo final usa sufixo `_ASSINADO.pdf` e versões anteriores são preservadas quando há substituição controlada.
-
-A versão atual do serviço também protege captura e salvamento concorrentes, aguarda cancelamento do processo WIA antes da limpeza e valida caminhos reais antes de publicar o arquivo assinado.
-
-### Documentos de obras
-
-Os anexos de obra usam a estrutura:
+### Obras
 
 ```text
 <raiz>/
@@ -68,104 +48,174 @@ Os anexos de obra usam a estrutura:
       <categoria>/
 ```
 
-Categorias incluem documentos de obra, RDO, medição, contrato, compra, nota fiscal, ART/RRT, foto e outros tipos registrados pelo fluxo existente.
+## Arquitetura final
 
-## Tela `/documentos` antes da Entrega 1
+```text
+DocumentsPage
+  ↓
+FileExplorer (genérico)
+  ↓ window.fluxoDre.explorador
+preload.cjs
+  ↓ IPC explorer:*
+ManagedDirectoryService ───────────────→ filesystem
+  ↑
+  └─ roots nomeadas + validação de caminho
 
-`DocumentsPage.tsx` já oferecia uma central baseada nos registros do banco:
+DocumentIndexView / ações documentais
+  ↓ explorer:context / explorer:index / explorer:move-to-signed
+DocumentExplorerContextService
+  ↓                         ↓
+SQLite                    filesystem validado
 
-- filtros por categoria, obra e frente;
-- busca por título/categoria;
-- importação de documento de obra ou funcionário;
-- abertura do arquivo no aplicativo padrão;
-- localização no Explorer do sistema;
-- cópia de caminho;
-- remoção do cadastro com preservação física por padrão.
+DocumentScannerModal
+  ↓ window.fluxoDre.scanner
+ScannerService
+  ↓
+Windows PowerShell 5.1 / WIA / Epson
+```
 
-Esse comportamento foi preservado na aba **Registros**.
-
-## Módulo reutilizável da Entrega 1
-
-### Renderer
+## Módulo reutilizável
 
 ```text
 src/modules/file-explorer/
   FileExplorer.tsx
+  DocumentIndexView.tsx
+  DocumentScannerModal.tsx
   file-explorer.css
   types.ts
   index.ts
 ```
 
-`FileExplorer` depende somente do contrato `window.fluxoDre.explorador` e das propriedades:
+`FileExplorer` aceita `rootId`, `rootLabel`, `initialPath` e textos opcionais. Recursos específicos de documentos são habilitados pela prop `documentFeatures`; sem ela, o componente continua sendo um explorador genérico de uma root autorizada.
 
-- `rootId`;
-- `rootLabel`;
-- `initialPath`;
-- textos opcionais de título/descrição/estado vazio.
+## Entrega 1 — navegação segura
 
-Por isso o mesmo componente poderá ser reutilizado futuramente para documentos de RH, obras, contratos ou outras raízes explicitamente autorizadas, sem copiar a lógica de navegação.
+- grade de pastas/arquivos;
+- busca na pasta atual;
+- breadcrumb e voltar;
+- atualizar;
+- abrir no Windows;
+- symlinks/junctions bloqueados;
+- validação por `path.resolve` e `realpath`;
+- sem acesso a Node/fs no renderer.
 
-### Processo principal
+## Entrega 2 — preview e metadados
 
-```text
-Renderer
-  ↓ window.fluxoDre.explorador
-preload.cjs
-  ↓ IPC explorer:list / explorer:open
-ManagedDirectoryService
-  ↓ raiz nomeada autorizada
-filesystem
+`ManagedDirectoryService.preview()` suporta preview interno limitado de:
+
+- PDF;
+- PNG/JPEG/GIF/WebP/BMP.
+
+O retorno contém somente metadados relativos: nome, extensão, tamanho, data, MIME e tipo de preview. O conteúdo é limitado a 12 MB por padrão; arquivos maiores ou tipos não suportados continuam disponíveis por **Abrir no Windows**.
+
+## Entrega 3 — operações controladas
+
+Operações disponíveis somente dentro da root autorizada:
+
+- criar pasta;
+- renomear;
+- mover;
+- excluir com confirmação;
+- importar por seletor do Electron;
+- importar por drag-and-drop usando `webUtils.getPathForFile`.
+
+Proteções:
+
+- nomes inválidos e nomes reservados do Windows são rejeitados;
+- não há overwrite silencioso;
+- pasta não pode ser movida para dentro dela mesma;
+- symlinks não podem ser modificados/importados;
+- importação em lote faz preflight e compensa cópias parciais em erro;
+- renomear/mover arquivos já registrados atualiza `arquivos.caminho`;
+- exclusão física remove o vínculo de arquivo e marca documentos correspondentes como excluídos.
+
+## Entrega 4 — Assinados / Não assinados
+
+`DocumentExplorerContextService` reconhece o status físico e oferece `moveToSigned()`.
+
+- ação só aparece para arquivo em `Não assinados`;
+- destino é a pasta irmã `Assinados`;
+- conflito nunca sobrescreve: `Arquivo.pdf` vira `Arquivo (2).pdf`, etc.;
+- `arquivos.caminho` e `documentos.status_assinatura` são atualizados em transação;
+- em falha do banco, o rename físico é revertido.
+
+## Entrega 5 — scanner Epson
+
+`DocumentScannerModal` reutiliza o `ScannerService` já endurecido.
+
+Fluxo:
+
+1. arquivo em `Não assinados` resolve seu `documentId` interno;
+2. usuário escolhe **Cinza** ou **Colorido**;
+3. captura uma página por vez via WIA a 300 DPI;
+4. pode adicionar ou refazer páginas;
+5. revisa as imagens;
+6. salva PDF multipágina em `Assinados`;
+7. se já existir versão assinada, a substituição exige confirmação e preserva histórico.
+
+A comunicação física com o Epson real depende do Windows, driver WIA e equipamento conectado; a integração de software está preparada, mas a prova física final só pode ocorrer no computador com o scanner.
+
+## Entrega 6 — contexto inteligente
+
+`DocumentExplorerContextService.context()` retorna:
+
+```ts
+{
+  relativePath,
+  employee: { id, nome, cpf } | null,
+  competencia,
+  categoria,
+  status,
+  documentId,
+  arquivoId
+}
 ```
 
-`ManagedDirectoryService` é genérico e recebe um mapa de raízes. Nesta entrega existe apenas:
+`index()` percorre arquivos físicos sem seguir symlinks e cria a visão **Organizado**, com filtros por:
+
+- funcionário;
+- competência;
+- categoria;
+- status de assinatura;
+- texto/caminho.
+
+Competência só é inferida da estrutura canônica `Recibos/YYYY/MM - mês`. Funcionários homônimos permanecem separados por `funcionario_id`/CPF.
+
+## API pública do explorador
 
 ```text
-documents → DocumentRootService.getRoot()
+explorador.list
+explorador.preview
+explorador.open
+explorador.createFolder
+explorador.rename
+explorador.move
+explorador.remove
+explorador.pickImport
+explorador.importFiles
+explorador.pathForFile
+explorador.context
+explorador.index
+explorador.moveToSigned
 ```
 
-Adicionar outra área no futuro exige registrá-la explicitamente no processo principal; o renderer não pode escolher um caminho arbitrário do computador.
+Toda operação privilegiada termina no processo principal; `contextIsolation`, `nodeIntegration: false` e sandbox continuam preservados.
 
-## Contrato de segurança da Entrega 1
+## Central de documentos
 
-O explorador é somente leitura em relação ao sistema de arquivos.
+`/documentos` mantém duas áreas:
 
-- não expõe `fs` ao renderer;
-- não aceita caminho absoluto;
-- rejeita segmentos `..`;
-- valida contenção após `path.resolve`;
-- valida contenção também após `realpath`, evitando escape por links simbólicos;
-- links simbólicos são exibidos como bloqueados e não podem ser abertos pelo módulo;
-- somente raízes previamente cadastradas podem ser acessadas;
-- não existem métodos para criar, renomear, mover, copiar, sobrescrever ou excluir arquivos/pastas.
+- **Pastas**: explorador físico, preview, organização, assinatura, scanner e visão organizada;
+- **Registros**: central anterior baseada no SQLite, preservando filtros, importações e ações existentes.
 
-A única ação externa é `open`, que usa `shell.openPath` depois das validações e pode abrir uma pasta ou arquivo existente no aplicativo padrão do sistema operacional.
+## Fora do escopo após a Entrega 6
 
-## Comportamento da aba Pastas
+Não foram adicionados deliberadamente:
 
-A aba **Pastas** da Central de documentos:
+- watcher contínuo do filesystem;
+- sincronização em nuvem das pastas físicas;
+- OCR/indexação de conteúdo;
+- edição interna de PDF/Office;
+- seleção múltipla em massa.
 
-- lista a raiz física configurada;
-- mostra pastas antes de arquivos;
-- usa grade visual;
-- mostra extensão/tamanho/data de arquivos;
-- navega por clique, breadcrumb e voltar;
-- busca somente dentro da pasta atual;
-- atualiza a listagem sob demanda;
-- abre a pasta atual ou uma subpasta no Windows;
-- abre um arquivo no aplicativo padrão do Windows;
-- não altera nenhum arquivo.
-
-## Fora do escopo das Entregas 0 e 1
-
-Continuam para entregas posteriores:
-
-- preview interno de PDF/imagem;
-- criação de pasta;
-- renomear, mover, copiar ou excluir;
-- importação por arrastar e soltar;
-- seleção múltipla;
-- observação automática do filesystem;
-- status semântico de assinatura na própria grade;
-- vínculo visual direto com a sessão do scanner.
-
-Essas funções devem reutilizar o módulo atual e ampliar o contrato de forma incremental, com operações privilegiadas separadas e validação própria no processo principal.
+Esses recursos podem ser adicionados posteriormente reutilizando as mesmas roots nomeadas e contratos IPC.
