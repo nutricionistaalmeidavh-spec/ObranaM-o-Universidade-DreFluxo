@@ -3,10 +3,18 @@ type EntityApi = { list(filters?: Record<string, unknown>): Promise<any[]>; get(
 type ExplorerEntry = { name:string; relativePath:string; kind:'folder'|'file'|'link'; extension:string; size:number|null; modifiedAt:string; canOpen:boolean }
 type ExplorerDirectory = { rootId:string; name:string; relativePath:string; parentRelativePath:string|null; items:ExplorerEntry[] }
 type ExplorerPreview = { rootId:string; name:string; relativePath:string; extension:string; size:number; modifiedAt:string; previewKind:'pdf'|'image'|'unsupported'; mimeType:string|null; dataUrl:string|null; previewBlockedReason:'size'|'type'|null }
+type ExplorerMutationResult = { name:string; relativePath:string }
 type ExplorerApi = {
   list(rootId:string,relativePath?:string):Promise<ExplorerDirectory>
   preview(rootId:string,relativePath:string):Promise<ExplorerPreview>
   open(rootId:string,relativePath?:string):Promise<string>
+  createFolder(rootId:string,parentRelativePath:string,name:string):Promise<ExplorerMutationResult>
+  rename(rootId:string,relativePath:string,newName:string):Promise<ExplorerMutationResult>
+  move(rootId:string,relativePath:string,destinationRelativePath:string):Promise<ExplorerMutationResult>
+  remove(rootId:string,relativePath:string,recursive?:boolean):Promise<boolean>
+  pickImport(rootId:string,destinationRelativePath?:string):Promise<ExplorerMutationResult[]>
+  importFiles(rootId:string,destinationRelativePath:string,sourcePaths:string[]):Promise<ExplorerMutationResult[]>
+  pathForFile(file:File):string
 }
 type ScannerMode = 'grayscale'|'color'
 type ScannerPage = { index:number; mode:ScannerMode; preview:string }
