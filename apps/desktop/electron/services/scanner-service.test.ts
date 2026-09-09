@@ -118,6 +118,11 @@ describe('scanner de documentos assinados',()=>{
     expect(conflict).toEqual(expect.objectContaining({conflict:true,path:firstCanonical}))
     expect(fs.existsSync(firstCanonical)).toBe(true)
 
+    const live=scanner.getSession(secondSession.sessionId)
+    const pageBytes=fs.readFileSync(live.pages[0].path)
+    console.log('scanner replacement trace',{pagePath:live.pages[0].path,destination:firstCanonical,header:pageBytes.subarray(0,8).toString('hex'),size:pageBytes.length,samePath:path.resolve(live.pages[0].path)===path.resolve(firstCanonical)})
+    expect(pageBytes.subarray(0,2).toString('hex')).toBe('ffd8')
+
     const replaced=await scanner.saveSigned({sessionId:secondSession.sessionId,documentId:originalDoc.id,replace:true})
     expect(replaced.conflict).toBe(false)
     expect(replaced.path).toBe(firstCanonical)
