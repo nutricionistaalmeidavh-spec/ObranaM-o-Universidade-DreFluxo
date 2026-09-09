@@ -97,4 +97,68 @@ describe('ManagedDirectoryService', () => {
 
     expect(result).toMatchObject({ previewKind: 'unsupported', dataUrl: null, previewBlockedReason: 'size' })
   })
+
+  it('cria, renomeia e move pastas e arquivos sem sobrescrever destinos existentes', () => {
+    const { root, service } = setup()
+    const createdFolder = service.createFolder({ rootId: 'documents', parentRelativePath: '', name: 'Contratos' })
+    expect(createdFolder.relativePath).toBe('Contratos')
+    fs.writeFileSync(path.join(root, 'Contratos', 'modelo.pdf'), 'modelo', 'utf8')
+
+    const renamed = service.rename({ rootId: 'documents', relativePath: 'Contratos/modelo.pdf', newName: 'contrato.pdf' })
+    expect(renamed.relativePath).toBe('Contratos/contrato.pdf')
+    fs.mkdirSync(path.join(root, 'Arquivo'))
+    const moved = service.move({ rootId: 'documents', relativePath: renamed.relativePath, destinationRelativePath: 'Arquivo' })
+    expect(moved.relativePath).toBe('Arquivo/contrato.pdf')
+    expect(fs.readFileSync(path.join(root, 'Arquivo', 'contrato.pdf'), 'utf8')).toBe('modelo')
+
+    fs.writeFileSync(path.join(root, 'Arquivo', 'duplicado.pdf'), 'x', 'utf8')
+    fs.writeFileSync(path.join(root, 'duplicado.pdf'), 'y', 'utf8')
+    expect(() => service.move({ rootId: 'documents', relativePath: 'duplicado.pdf', destinationRelativePath: 'Arquivo' })).toThrow('já existe')
+  })
+
+  it('remove arquivo e exige confirmação recursiva explícita para pasta não vazia', () => {
+    const { root, service } = setup()
+    fs.mkdirSync(path.join(root, 'Temporário'))
+    fs.writeFileSync(path.join(root, 'Temporário', 'item.txt'), 'x', 'utf8')
+    fs.writeFileSync(path.join(root, 'solto.txt'), 'x', 'utf8')
+
+    expect(service.remove({ rootId: 'documents', relativePath: 'solto.txt' })).toBe(true)
+    expect(fs.existsSync(path.join(root, 'solto.txt'))).toBe(false)
+    expect(() => service.remove({ rootId: 'documents', relativePath: 'Temporário' })).toThrow('não está vazia')
+    expect(service.remove({ rootId: 'documents', relativePath: 'Temporário', recursive: true })).toBe(true)
+    expect(fs.existsSync(path.join(root, 'Temporário'))).toBe(false)
+  })
+
+  it('importa arquivos externos para uma pasta autorizada sem sobrescrever e sem importar symlink', () => {
+    const { root, service } = setup()
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxo-import-source-'))
+    created.push(outside)
+    fs.mkdirSync(path.join(root, 'Importados'))
+    const source = path.join(outside, 'nota.pdf')
+    fs.writeFileSync(source, 'nota', 'utf8')
+
+    const result = service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [source] })
+    expect(result).toEqual([{ name: 'nota.pdf', relativePath: 'Importados/nota.pdf' }])
+    expect(fs.readFileSync(path.join(root, 'Importados', 'nota.pdf'), 'utf8')).toBe('nota')
+    expect(() => service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [source] })).toThrow('já existe')
+
+    const link = path.join(outside, 'atalho.pdf')
+    fs.symlinkSync(source, link)
+    expect(() => service.importFiles({ rootId: 'documents', destinationRelativePath: 'Importados', sourcePaths: [link] })).toThrow('atalhos simbólicos')
+  })
+
+  it('bloqueia nomes inválidos, raiz e symlink em operações mutáveis', () => {
+    const { root, service } = setup()
+    fs.writeFileSync(path.join(root, 'arquivo.txt'), 'x', 'utf8')
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxo-explorer-link-outside-'))
+    created.push(outside)
+    const outsideFile = path.join(outside, 'fora.txt')
+    fs.writeFileSync(outsideFile, 'fora', 'utf8')
+    fs.symlinkSync(outsideFile, path.join(root, 'link.txt'))
+
+    expect(() => service.createFolder({ rootId: 'documents', parentRelativePath: '', name: '../escape' })).toThrow('Nome inválido')
+    expect(() => service.rename({ rootId: 'documents', relativePath: 'arquivo.txt', newName: 'A/B.txt' })).toThrow('Nome inválido')
+    expect(() => service.remove({ rootId: 'documents', relativePath: '' })).toThrow('pasta raiz')
+    expect(() => service.rename({ rootId: 'documents', relativePath: 'link.txt', newName: 'novo.txt' })).toThrow('Atalhos simbólicos')
+  })
 })
