@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const require=createRequire(import.meta.url)
 const {PDFDocument}=require('pdf-lib')
@@ -38,7 +38,7 @@ async function assertReadablePdf(filePath:string){
   expect(pdf.getPageCount()).toBeGreaterThan(0)
 }
 
-afterEach(()=>{for(const item of created.splice(0)){item.db.close();fs.rmSync(item.dir,{recursive:true,force:true})}})
+afterEach(()=>{vi.restoreAllMocks();for(const item of created.splice(0)){item.db.close();fs.rmSync(item.dir,{recursive:true,force:true})}})
 
 describe('scanner de documentos assinados',()=>{
   it('calcula a pasta Assinados como irmã de Não assinados',()=>{
@@ -57,10 +57,145 @@ describe('scanner de documentos assinados',()=>{
     expect(signedArchivePath(canonical,3,path.win32)).toBe(path.win32.join('C:\\docs','Assinados','Ficha_ASSINADO_v3.pdf'))
   })
 
-  it('informa indisponibilidade fora do Windows',()=>{
+  it('informa indisponibilidade fora do Windows',async()=>{
     const {db,fileService,dir}=setup()
     const scanner=new ScannerService({db,fileService,dataDir:dir,platform:'linux',acquirePage:async()=>{}})
-    expect(scanner.capabilities()).toEqual(expect.objectContaining({supported:false,available:false,platform:'linux'}))
+    expect(await scanner.capabilities()).toEqual(expect.objectContaining({supported:false,available:false,platform:'linux'}))
+  })
+
+  it('não anuncia disponibilidade sem PowerShell',async()=>{
+    const {db,fileService,dir}=setup()
+    const scanner=new ScannerService({db,fileService,dataDir:dir,platform:'win32'})
+    scanner.powershellPath=path.join(dir,'powershell-ausente.exe')
+    expect(await scanner.capabilities()).toMatchObject({supported:true,available:false})
+  })
+
+  it('não anuncia disponibilidade quando WIA não encontra um scanner',async()=>{
+    const {db,fileService,dir}=setup()
+    const scanner=new ScannerService({db,fileService,dataDir:dir,platform:'win32'})
+    scanner.powershellPath=process.execPath
+    scanner.probeWia=async()=>false
+    expect(await scanner.capabilities()).toMatchObject({supported:true,available:false})
+    scanner.probeWia=async()=>true
+    expect(await scanner.capabilities()).toMatchObject({available:true})
+  })
+
+  it.each([false,true])('reverte arquivos e registros quando o banco falha (substituição=%s)',async(replace)=>{
+    const {db,scanner,originalDoc}=setup()
+    let previous:any
+    if(replace){
+      const session=await scanner.start({mode:'grayscale'})
+      previous=await scanner.saveSigned({sessionId:session.sessionId,documentId:originalDoc.id})
+    }
+    const filesBefore=db.list('arquivos'),docsBefore=db.list('documentos')
+    const previousBytes=previous?fs.readFileSync(previous.path):null
+    const session=await scanner.start({mode:'color'})
+    const save=db.save.bind(db)
+    const spy=vi.spyOn(db,'save').mockImplementation((table:any,data:any)=>{
+      if(table==='documentos') throw new Error('Falha de banco simulada')
+      return save(table,data)
+    })
+    await expect(scanner.saveSigned({sessionId:session.sessionId,documentId:originalDoc.id,replace})).rejects.toThrow('Falha de banco simulada')
+    spy.mockRestore()
+    expect(db.list('arquivos')).toEqual(filesBefore)
+    expect(db.list('documentos')).toEqual(docsBefore)
+    if(previous) expect(fs.readFileSync(previous.path)).toEqual(previousBytes)
+    const destination=signedDestinationFor(db.get('arquivos',originalDoc.arquivo_id).caminho)
+    expect(fs.readdirSync(path.dirname(destination))).toEqual(previous?[path.basename(destination)]:[])
+    // A mesma captura continua disponível para tentar novamente.
+    const retry=await scanner.saveSigned({sessionId:session.sessionId,documentId:originalDoc.id,replace})
+    expect(retry.conflict).toBe(false)
+  })
+
+  it('bloqueia duas capturas e não deixa página órfã ao cancelar uma captura em andamento',async()=>{
+    const {scanner}=setup()
+    const session=await scanner.start({mode:'grayscale'})
+    let finish!:()=>void
+    let capturedSignal:AbortSignal|undefined
+    scanner.acquirePage=({destination,signal}:any)=>new Promise<void>(resolve=>{
+      capturedSignal=signal
+      finish=()=>{fs.writeFileSync(destination,Buffer.from(JPEG_1PX,'base64'));resolve()}
+    })
+    const pending=scanner.addPage({sessionId:session.sessionId,mode:'color'})
+    const rejected=expect(pending).rejects.toThrow(/cancelad/i)
+    await expect(scanner.start({mode:'grayscale'})).rejects.toThrow(/andamento|ocupado/i)
+    const discard=scanner.discard({sessionId:session.sessionId})
+    expect(capturedSignal?.aborted).toBe(true)
+    finish()
+    await rejected
+    await discard
+    expect(fs.readdirSync(scanner.cacheDir).filter((name:string)=>name.endsWith('.jpg'))).toEqual([])
+  })
+
+  it('restaura a versão anterior se a publicação física do PDF falhar',async()=>{
+    const {scanner,db,originalDoc}=setup()
+    const first=await scanner.start({mode:'grayscale'})
+    const saved=await scanner.saveSigned({sessionId:first.sessionId,documentId:originalDoc.id})
+    const bytes=fs.readFileSync(saved.path)
+    const filesBefore=db.list('arquivos')
+    const second=await scanner.start({mode:'color'})
+    const copy=fs.copyFileSync.bind(fs)
+    const spy=vi.spyOn(fs,'copyFileSync').mockImplementation((source:any,target:any,flags?:number)=>{
+      if(String(source).includes('.part-')) throw new Error('Disco indisponível')
+      copy(source,target,flags)
+    })
+    await expect(scanner.saveSigned({sessionId:second.sessionId,documentId:originalDoc.id,replace:true})).rejects.toThrow('Disco indisponível')
+    spy.mockRestore()
+    expect(fs.readFileSync(saved.path)).toEqual(bytes)
+    expect(db.list('arquivos')).toEqual(filesBefore)
+    expect(db.list('documentos')).toHaveLength(2)
+    expect(fs.readdirSync(path.dirname(saved.path))).toEqual([path.basename(saved.path)])
+  })
+
+  it('não substitui arquivo que surgiu durante a geração do PDF sem confirmação',async()=>{
+    const {scanner,db,originalDoc}=setup()
+    const destination=signedDestinationFor(db.get('arquivos',originalDoc.arquivo_id).caminho)
+    const makePdf=scanner.makePdf.bind(scanner)
+    scanner.makePdf=async(...args:any[])=>{
+      await makePdf(...args)
+      fs.writeFileSync(destination,'arquivo criado durante a geração')
+    }
+    const session=await scanner.start({mode:'grayscale'})
+    expect(await scanner.saveSigned({sessionId:session.sessionId,documentId:originalDoc.id})).toMatchObject({conflict:true})
+    expect(fs.readFileSync(destination,'utf8')).toBe('arquivo criado durante a geração')
+    expect(db.list('documentos')).toHaveLength(1)
+  })
+
+  it('aguarda a captura terminar ao encerrar e remove os temporários',async()=>{
+    const {scanner}=setup()
+    const session=await scanner.start({mode:'grayscale'})
+    let finish!:()=>void
+    scanner.acquirePage=({destination}:any)=>new Promise<void>(resolve=>{
+      finish=()=>{fs.writeFileSync(destination,Buffer.from(JPEG_1PX,'base64'));resolve()}
+    })
+    const pending=scanner.addPage({sessionId:session.sessionId,mode:'color'})
+    const rejected=expect(pending).rejects.toThrow(/cancelad/i)
+    const dispose=scanner.dispose()
+    finish()
+    await rejected
+    await dispose
+    expect(fs.existsSync(scanner.cacheDir)).toBe(false)
+    expect(await scanner.capabilities()).toMatchObject({available:false})
+    await expect(scanner.start()).rejects.toThrow(/encerrado/i)
+  })
+
+  it('bloqueia salvamentos simultâneos e permite cancelar antes de publicar o PDF',async()=>{
+    const {scanner,db,originalDoc}=setup()
+    const session=await scanner.start({mode:'grayscale'})
+    let finish!:()=>void
+    const makePdf=scanner.makePdf.bind(scanner)
+    scanner.makePdf=async(...args:any[])=>{await new Promise<void>(resolve=>{finish=resolve});await makePdf(...args)}
+    const payload={sessionId:session.sessionId,documentId:originalDoc.id}
+    const pending=scanner.saveSigned(payload)
+    const rejected=expect(pending).rejects.toThrow(/cancelad/i)
+    await expect(scanner.saveSigned(payload)).rejects.toThrow(/andamento|ocupado/i)
+    const discard=scanner.discard({sessionId:session.sessionId})
+    finish()
+    await rejected
+    await discard
+    expect(db.list('documentos')).toHaveLength(1)
+    const destination=signedDestinationFor(db.get('arquivos',originalDoc.arquivo_id).caminho)
+    expect(fs.readdirSync(path.dirname(destination))).toEqual([])
   })
 
   it('mantém páginas somente no processo principal e permite adicionar, refazer e descartar',async()=>{

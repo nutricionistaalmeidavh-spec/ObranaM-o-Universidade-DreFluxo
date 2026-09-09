@@ -10,6 +10,30 @@
 
 **Spec:** `apps/desktop/docs/superpowers/specs/2026-09-09-windows-scanner-signed-docs-design.md`
 
+## Situação revisada — 2026-09-09
+
+O usuário autorizou apenas as entregas 1 e 2 da revisão do PR #7. A tabela abaixo registra o estado atual; o checklist original mais abaixo preserva o plano inicial, não é evidência de execução histórica.
+
+| Entrega revisada | Estado e evidência |
+| --- | --- |
+| 1. Segurança do serviço | Implementada: disponibilidade via PowerShell/WIA, exclusão de operações simultâneas, cancelamento com espera do processo, configuração de DPI/cor verificada, transação e compensação dos arquivos, validação de IDs/assinatura e caminhos reais. |
+| 2. Organização mensal | Implementada: novas fichas/recibos em `Não assinados`, preparação de `Assinados`, compatibilidade de `folder` e preservação de legados/homônimos. |
+| 3. Fluxo visual | Pendente: ação e modal na Central de documentos, prévia, confirmação e atualização das listas. |
+| 4. Validação integrada do módulo completo | Gates do escopo 1–2 passaram; repetir após integrar a UI. |
+| 5. Epson real | Pendente no Windows do usuário. |
+
+### Evidência das entregas 1–2
+
+- Baseline `9c7123d`: seis testes selecionados falharam em disponibilidade, rollback e novas pastas antes das correções.
+- Node 22.20.0; dependências instaladas pelo lockfile da raiz com `npm ci`. O lockfile isolado de `apps/desktop` está desatualizado e não foi alterado nesta entrega.
+- Em `apps/desktop`: `npm test` — **75 testes / 15 arquivos aprovados**; `npm run lint` e `npm run build` — aprovados. Build mantém aviso de bundle acima de 500 kB.
+- `node --check electron/main.cjs` e `git diff --check` — aprovados.
+- Verificação direta do executor com processo Node real: saída normal, stderr de falha e cancelamento aguardando `close` — aprovados no Linux. Não substitui a validação de PowerShell/WIA no Windows.
+- Cobertura de falhas: primeiro salvamento e substituição com erro no banco, erro na publicação física, conflito surgido durante geração, cancelamento de captura/salvamento, encerramento durante captura e separação de homônimos com CPF diferente.
+- Limite: a compensação cobre exceções em execução; não oferece atomicidade entre SQLite e sistema de arquivos sob queda de energia. Nenhum teste de Epson físico foi realizado.
+
+O PR permanece em draft; não liberar o módulo completo antes das entregas seguintes.
+
 ## Global Constraints
 
 - Windows-only na V1.

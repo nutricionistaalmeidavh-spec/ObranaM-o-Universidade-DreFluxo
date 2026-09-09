@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 const require=createRequire(import.meta.url)
 const {PDFDocument}=require('pdf-lib')
 const {DatabaseService}=require('./database.cjs')
+const {FileService}=require('./file-service.cjs')
 const {TimeService,mergeGeneratedPdfs,normalizeMhBenefits,buildPrintBatchHtml}=require('./time-service.cjs')
 const {parseEmployeeIdentity}=require('./import-service.cjs')
 const created:Array<{dir:string,db:any}>=[]
@@ -112,6 +113,30 @@ describe('folha de ponto mensal',()=>{
       {descricao:'Vale café',valor_centavos:18000},
       {descricao:'Vale-alimentação',valor_centavos:51000}
     ])
+  })
+
+  it('separa documentos mensais de homônimos por CPF e preserva assinados existentes',async()=>{
+    const {dir,db,employee}=setup()
+    const first=db.save('funcionarios',{...employee,nome:'Maicon Silva'})
+    const second=db.save('funcionarios',{...employee,id:undefined,nome:'Maicon Silva',cpf:'987.654.321-00'})
+    const files=new FileService({documentsDir:path.join(dir,'docs'),db})
+    const time=new TimeService({db,fileService:files})
+    time.printHtml=async(html:string,destination:string)=>{fs.writeFileSync(destination,html,'utf8')}
+    const options={competencia:'2026-09',point:true,receipts:false}
+    const a=await time.generateDocuments({...options,funcionario_id:first.id})
+    const signed=path.join(a.signedFolder,'assinatura-existente.pdf')
+    fs.writeFileSync(signed,'assinatura preservada')
+    const b=await time.generateDocuments({...options,funcionario_id:second.id})
+    expect(a.folder).not.toBe(b.folder)
+    expect(a.point.funcionario_id).toBe(first.id)
+    expect(b.point.funcionario_id).toBe(second.id)
+    expect(a.point.path).toContain('123.456.789-01')
+    expect(b.point.path).toContain('987.654.321-00')
+    expect(fs.existsSync(b.signedFolder)).toBe(true)
+    await time.generateDocuments({...options,funcionario_id:first.id})
+    expect(fs.readFileSync(signed,'utf8')).toBe('assinatura preservada')
+    expect(fs.readFileSync(a.point.path,'utf8')).toContain('123.456.789-01')
+    expect(fs.readFileSync(b.point.path,'utf8')).toContain('987.654.321-00')
   })
 
   it('gera somente os tipos selecionados sem duplicar o outro documento',async()=>{
