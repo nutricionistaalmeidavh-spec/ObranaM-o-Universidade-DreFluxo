@@ -52,8 +52,8 @@ class DocumentRootService {
 
   mappingIsValid(mapping) {
     if (!fs.existsSync(mapping.nextPath) || !fs.statSync(mapping.nextPath).isFile()) return false
-    if (mapping.hash) return sha256(mapping.nextPath) === mapping.hash
     if (fs.existsSync(mapping.previousPath) && fs.statSync(mapping.previousPath).isFile()) return sha256(mapping.nextPath) === sha256(mapping.previousPath)
+    if (mapping.hash) return sha256(mapping.nextPath) === mapping.hash
     return true
   }
 
