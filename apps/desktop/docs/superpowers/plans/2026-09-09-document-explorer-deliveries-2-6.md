@@ -1,10 +1,10 @@
 # Document Explorer Deliveries 2–6 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status final:** concluído em 2026-09-09.
 
 **Goal:** Evoluir o explorador interno reutilizável de documentos da leitura segura até preview, operações controladas, assinatura, scanner Epson e contexto inteligente por funcionário/competência.
 
-**Architecture:** Manter o `FileExplorer` como módulo genérico de renderer, sem acesso a Node/fs. Operações privilegiadas passam por `window.fluxoDre.explorador` → preload → IPC → `ManagedDirectoryService`; contexto de documentos fica em serviço separado, ligado ao SQLite por IDs internos. O scanner existente continua isolado no `ScannerService` e é apenas orquestrado pela UI.
+**Architecture:** `FileExplorer` permanece genérico e sem acesso a Node/fs. Operações privilegiadas passam por `window.fluxoDre.explorador` → preload → IPC → `ManagedDirectoryService`; regras documentais ficam em `DocumentExplorerContextService`, ligadas ao SQLite por IDs internos. O scanner permanece isolado em `ScannerService` e é orquestrado pela UI.
 
 **Tech Stack:** React 19, TypeScript, Electron 43, Node 22, SQLite/better-sqlite3, pdf-lib, Vitest.
 
@@ -12,108 +12,63 @@
 
 ## Global Constraints
 
-- Renderer nunca acessa `fs`, paths arbitrários ou Node diretamente.
-- Toda operação física é restrita a uma root explicitamente autorizada e valida `path.resolve` + `realpath`.
-- Bloquear `..`, caminhos absolutos de destino e symlink/junction escapes.
-- Não identificar funcionário apenas por primeiro nome; usar `funcionario_id` e CPF/ID na resolução contextual.
-- Preservar as rotas, registros, scanner e fluxos atuais.
-- Operações destrutivas exigem confirmação visual.
-- Testes do serviço + contrato IPC + build devem passar antes da integração.
+- [x] Renderer não acessa `fs`, paths arbitrários ou Node diretamente.
+- [x] Toda operação física é restrita a uma root explicitamente autorizada e valida containment/realpath.
+- [x] `..`, caminhos absolutos de destino e escapes por symlink/junction são bloqueados.
+- [x] Funcionários não são identificados apenas por primeiro nome; contexto usa `funcionario_id` e CPF/ID.
+- [x] Rotas, registros, scanner e fluxos anteriores foram preservados.
+- [x] Operações destrutivas exigem confirmação visual.
+- [x] Testes do serviço + contrato IPC + lint + build passam antes da integração.
 
 ---
 
-### Task 1: Entrega 2 — Preview interno e metadados
+### Entrega 2 — Preview interno e metadados
 
-**Files:**
-- Modify: `apps/desktop/electron/services/managed-directory-service.cjs`
-- Modify: `apps/desktop/electron/services/managed-directory-service.test.ts`
-- Modify: `apps/desktop/electron/main.cjs`
-- Modify: `apps/desktop/electron/preload.cjs`
-- Modify: `apps/desktop/src/vite-env.d.ts`
-- Modify: `apps/desktop/src/modules/file-explorer/types.ts`
-- Modify: `apps/desktop/src/modules/file-explorer/FileExplorer.tsx`
-- Modify: `apps/desktop/src/modules/file-explorer/file-explorer.css`
+- [x] Testes para PDF/imagem, extensão não suportada e limite de tamanho.
+- [x] MIME seguro e leitura de preview somente dentro da root gerenciada.
+- [x] `explorer:preview` exposto em main/preload/types.
+- [x] Preview interno com nome, tamanho, data, tipo, caminho relativo e “Abrir no Windows”.
+- [x] Gate de testes/TypeScript/build.
 
-**Interfaces:**
-- Produces: `explorador.preview(rootId, relativePath)` returning metadata plus `previewKind: 'pdf'|'image'|'unsupported'` and bounded `dataUrl` for supported files.
+### Entrega 3 — Operações controladas
 
-- [ ] Add failing tests for PDF/image preview, unsupported extension and size cap.
-- [ ] Implement safe MIME detection and preview reading only inside the managed root.
-- [ ] Expose `explorer:preview` through main/preload/types.
-- [ ] Add preview modal/panel showing name, size, modified date, type and relative path, with “Abrir no Windows”.
-- [ ] Run service tests and TypeScript/build gate.
+- [x] Testes para criar/renomear/mover/remover/importar e casos de traversal/symlink/conflito.
+- [x] Operações collision-safe, sem overwrite silencioso.
+- [x] Importação por seletor Electron e drag-and-drop via `webUtils.getPathForFile`.
+- [x] UI para criar pasta, importar, renomear, mover e excluir com confirmação.
+- [x] Refresh da listagem após mutações.
 
-### Task 2: Entrega 3 — Operações controladas
+### Entrega 4 — Assinados / Não assinados
 
-**Files:** same service/IPC/module files plus operation tests.
+- [x] Status inferido pela estrutura física e contexto SQLite.
+- [x] `moveToSigned` move para a pasta irmã `Assinados` e versiona colisões.
+- [x] `arquivos.caminho` e `documentos.status_assinatura` são sincronizados.
+- [x] Ação de assinatura aparece somente quando aplicável.
 
-**Interfaces:**
-- Produces: `createFolder`, `rename`, `move`, `remove`, `importFiles`.
-- Import source paths may come only from Electron file picker or `webUtils.getPathForFile` for user drag/drop; destinations remain relative to authorized root.
+### Entrega 5 — Fluxo Epson no explorador
 
-- [ ] Add failing tests for create/rename/move/remove/import and traversal/symlink/conflict cases.
-- [ ] Implement collision-safe filesystem operations with no overwrite by default.
-- [ ] Add Electron picker import and drop-path bridge without exposing fs.
-- [ ] Add UI actions, confirmations and drag/drop import.
-- [ ] Verify refresh/state preservation after each operation.
+- [x] Arquivo selecionado resolve `documentId` antes de digitalizar.
+- [x] `DocumentScannerModal` com cinza/colorido, primeira página, adicionar, refazer, descartar e previews.
+- [x] PDF assinado salvo via `ScannerService` em `Assinados`.
+- [x] Conflito de versão exige confirmação explícita e preserva histórico.
 
-### Task 3: Entrega 4 — Assinados / Não assinados
+> A validação física do Epson/WIA depende do equipamento e driver no Windows; a integração de software e seus contratos automatizados estão concluídos.
 
-**Files:**
-- Modify generic explorer types/UI.
-- Add domain-aware document helper/service if needed; do not couple generic path validation to RH.
+### Entrega 6 — Contexto inteligente
 
-**Interfaces:**
-- Produces physical signature status and `moveToSigned(rootId, relativePath)`.
+- [x] Testes com funcionários homônimos separados por CPF/ID.
+- [x] Resolução por IDs/path e identidade canônica da pasta.
+- [x] Competência inferida somente de `Recibos/YYYY/MM - mês`.
+- [x] Índice pesquisável por funcionário, competência, categoria e status.
+- [x] Visão organizada com filtros e abertura direta do arquivo físico.
 
-- [ ] Add tests for status inference and sibling `Assinados` destination.
-- [ ] Implement move (not copy) to `Assinados`, preserving target on collision via safe versioned name.
-- [ ] If a managed file record exists, update `arquivos.caminho`; if a document record exists, update `status_assinatura` consistently.
-- [ ] Show status badge and “Mover para assinados” only where applicable.
+### Verificação final e documentação
 
-### Task 4: Entrega 5 — Fluxo Epson no explorador
-
-**Files:**
-- Create: `apps/desktop/src/modules/file-explorer/DocumentScannerModal.tsx`
-- Modify: explorer UI/types and document context service/API.
-- Reuse: `electron/services/scanner-service.cjs` and existing scanner IPC.
-
-**Interfaces:**
-- Consumes: `documentId` resolved from selected physical file.
-- Uses: `scanner.capabilities/start/addPage/redoPage/discard/saveSigned`.
-
-- [ ] Add contract tests that file→document context returns a valid internal `documentId` before scanning.
-- [ ] Add scanner modal with grayscale/color, first page, add page, redo, discard and previews.
-- [ ] Save signed PDF through existing scanner service into `Assinados`.
-- [ ] Handle existing signed destination with explicit replace confirmation and refresh explorer/context after save.
-
-### Task 5: Entrega 6 — Contexto inteligente
-
-**Files:**
-- Create: `apps/desktop/electron/services/document-explorer-context-service.cjs`
-- Create: `apps/desktop/electron/services/document-explorer-context-service.test.ts`
-- Modify: main/preload/vite types.
-- Create/Modify renderer context/filter component inside `src/modules/file-explorer/`.
-
-**Interfaces:**
-- Produces: `explorador.context(rootId, relativePath)` and `explorador.index(rootId)`.
-- Context item: `{ relativePath, employee:{id,nome,cpf}|null, competencia:string|null, categoria:string|null, status:string, documentId:number|null, arquivoId:number|null }`.
-
-- [ ] Add tests with two employees sharing first name but different CPF/IDs.
-- [ ] Resolve managed documents by DB IDs/path and employee folder identity containing CPF/ID.
-- [ ] Infer competence only from canonical `Recibos/YYYY/MM - mês` structure.
-- [ ] Return searchable index grouped/filterable by employee, competence, category and status.
-- [ ] Add “Organizado” view with filters and direct navigation/preview to physical item.
-
-### Task 6: Final verification and documentation
-
-**Files:**
-- Modify: `apps/desktop/docs/DOCUMENT_EXPLORER_MAP.md`
-- Modify: `apps/desktop/docs/PROJECT_MAP.md`
-- Modify: `.github/workflows/rh-docs-ci.yml`
-
-- [ ] Add all new service tests to CI.
-- [ ] Run `npm test`, `npm run lint`, `npm run build` through CI.
-- [ ] Confirm existing scanner/RH tests remain green.
-- [ ] Update docs with final API and delivery status.
-- [ ] Keep PR in draft until all gates pass, then mark ready for review.
+- [x] Novos testes incluídos no CI.
+- [x] `npm test` passa.
+- [x] `npm run lint` passa.
+- [x] `npm run build` passa.
+- [x] Testes existentes de scanner/RH permanecem verdes.
+- [x] `DOCUMENT_EXPLORER_MAP.md` atualizado para Entregas 0–6.
+- [x] `PROJECT_MAP.md` atualizado com arquitetura/API final.
+- [x] PR apto a sair de draft após o último CI verde.
