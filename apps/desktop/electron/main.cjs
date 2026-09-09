@@ -3,6 +3,7 @@ const path = require('node:path')
 const { DatabaseService } = require('./services/database-safe.cjs')
 const { FileService } = require('./services/file-service.cjs')
 const { ManagedDirectoryService } = require('./services/managed-directory-service.cjs')
+const { DocumentExplorerContextService } = require('./services/document-explorer-context-service.cjs')
 const { BackupService } = require('./services/backup-service.cjs')
 const { ImportService } = require('./services/import-service.cjs')
 const { DocumentService } = require('./services/document-service.cjs')
@@ -32,17 +33,50 @@ function resolvePaths() {
   return { dataDir, documentsDir: path.join(dataDir, 'documentos'), migrationsDir: path.join(app.getAppPath(), 'database', 'migrations') }
 }
 
+function affectedRegisteredFiles(db, target) {
+  const prefix = `${target}${path.sep}`
+  return db.db.prepare('SELECT id,caminho FROM arquivos').all().filter((row) => row.caminho === target || String(row.caminho).startsWith(prefix))
+}
+
+function syncRegisteredPaths(db, previous, next) {
+  const rows = affectedRegisteredFiles(db, previous)
+  if (!rows.length) return
+  db.db.transaction(() => {
+    for (const row of rows) {
+      const suffix = row.caminho === previous ? '' : row.caminho.slice(previous.length)
+      const nextPath = `${next}${suffix}`
+      db.db.prepare('UPDATE arquivos SET caminho=?,nome_original=?,nome_armazenado=? WHERE id=?').run(nextPath, path.basename(nextPath), path.basename(nextPath), row.id)
+    }
+  })()
+}
+
+function removeRegisteredPaths(db, target) {
+  const rows = affectedRegisteredFiles(db, target)
+  if (!rows.length) return
+  db.db.transaction(() => {
+    for (const row of rows) {
+      db.db.prepare("UPDATE documentos SET arquivo_id=NULL,deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP) WHERE arquivo_id=?").run(row.id)
+      db.db.prepare('DELETE FROM arquivos WHERE id=?').run(row.id)
+    }
+  })()
+}
+
 function createServices() {
   const paths = resolvePaths()
   const db = new DatabaseService(paths)
   db.open()
   const files = new FileService({ documentsDir: paths.documentsDir, db })
   const documentRoot = new DocumentRootService({ db, files, defaultDir: paths.documentsDir })
-  const explorer = new ManagedDirectoryService({ roots: { documents: () => documentRoot.getRoot() }, shell, dialog })
+  const explorer = new ManagedDirectoryService({
+    roots: { documents: () => documentRoot.getRoot() }, shell, dialog,
+    onPathChanged: (previous, next) => syncRegisteredPaths(db, previous, next),
+    onPathRemoved: (target) => removeRegisteredPaths(db, target)
+  })
+  const explorerContext = new DocumentExplorerContextService({ db, explorer, rootId: 'documents' })
   const product = new ProductService({ db })
   const uiPreferences = new UiPreferencesService({ db })
   return {
-    paths, db, files, documentRoot, explorer,
+    paths, db, files, documentRoot, explorer, explorerContext,
     backup: new BackupService({ db, ...paths }),
     importer: new ImportService({ db }),
     documents: new DocumentService({ db, fileService: files, dialog }),
@@ -109,6 +143,9 @@ function registerIpc() {
   ipcMain.handle('explorer:remove', envelope((payload) => services.explorer.remove(payload)))
   ipcMain.handle('explorer:import', envelope((payload) => services.explorer.importFiles(payload)))
   ipcMain.handle('explorer:pick-import', envelope((payload) => services.explorer.pickImportFiles(payload)))
+  ipcMain.handle('explorer:context', envelope((payload) => services.explorerContext.context(payload)))
+  ipcMain.handle('explorer:index', envelope((payload) => services.explorerContext.index(payload)))
+  ipcMain.handle('explorer:move-to-signed', envelope((payload) => services.explorerContext.moveToSigned(payload)))
   ipcMain.handle('documents:delete', envelope((payload) => services.files.deleteDocument(payload)))
   ipcMain.handle('documents:generate', envelope((payload) => services.documents.generate(payload)))
   ipcMain.handle('documents:templates', envelope(() => services.documents.listTemplates()))
