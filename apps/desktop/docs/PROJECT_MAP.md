@@ -1,6 +1,6 @@
 # Mapa do projeto — Fluxo DRE
 
-Última revisão estrutural: 2026-08-04.
+Última revisão estrutural: 2026-09-09.
 
 Este documento é o ponto de partida para alterações. Leia a seção afetada e abra apenas os arquivos diretamente relacionados; evite uma nova varredura global.
 
@@ -29,6 +29,7 @@ Ao mudar uma operação que cruza camadas, confira apenas os pontos corresponden
 - `src/components/ui.tsx`: componentes reutilizáveis de interface.
 - `src/modules/command-center/`: interface ativa em tema dark, incluindo shell e versões especializadas de Painel, DRE e Financeiro.
 - `src/modules/classic-ui/`: interface anterior preservada como módulo sem rota ativa para restauração ou consulta.
+- `src/modules/file-explorer/`: explorador de filesystem reutilizável e somente leitura, desacoplado dos domínios de RH/obras.
 - `src/hooks/useAsync.ts`: carregamento assíncrono usado pelas páginas.
 - `src/utils/format.ts`: datas, competências e valores monetários.
 - `src/pages/`: telas por domínio.
@@ -40,6 +41,7 @@ Ao mudar uma operação que cruza camadas, confira apenas os pontos corresponden
 - `database/migrations/`: schema versionado e incremental.
 - `vite.config.ts`, `vitest.config.ts`, `tsconfig*.json`: build, testes e TypeScript.
 - `docs/UI_DESIGN_HISTORY.md`: histórico dos drafts preservados e da direção visual aprovada.
+- `docs/DOCUMENT_EXPLORER_MAP.md`: contrato da raiz documental, estruturas físicas e limites do explorador interno.
 
 ## Rotas e telas
 
@@ -59,7 +61,7 @@ Ao mudar uma operação que cruza camadas, confira apenas os pontos corresponden
 | `/funcionarios` | `EmployeesPage.tsx` | Funcionários |
 | `/registro-funcionario` | `EmployeeRegistrationPage.tsx` | Admissão e documentos |
 | `/ponto` | `TimeSheetPage.tsx` | Ponto mensal |
-| `/documentos` | `DocumentsPage.tsx` | Arquivos e documentos |
+| `/documentos` | `DocumentsPage.tsx` | Explorador físico somente leitura + registros de documentos |
 | `/cadastros` | `RegistriesPage.tsx` | Empresas, clientes e fornecedores |
 | `/importacao` | `ImportPage.tsx` | Importadores legado 2026 e universal por mapeamento |
 | `/configuracoes` | `SettingsPage.tsx` | Pastas, backup e configurações |
@@ -73,6 +75,7 @@ Ao mudar uma operação que cruza camadas, confira apenas os pontos corresponden
 - `document-service.cjs`: geração de documentos/PDFs.
 - `file-service.cjs`: importação, abertura, localização e exclusão controlada de arquivos.
 - `document-root-service.cjs`: raiz configurável dos documentos.
+- `managed-directory-service.cjs`: listagem e abertura somente leitura dentro de raízes nomeadas e autorizadas, com bloqueio de traversal e links simbólicos.
 - `import-service.cjs`: prévia e confirmação do modelo específico de 2026.
 - `universal-import-service.cjs`: análise de Excel/CSV, mapeamento assistido e importação transacional por área.
 - `catalog-service.cjs`: cargos, benefícios e vínculos.
@@ -95,7 +98,7 @@ Novas mudanças devem ser adicionadas em uma migration numerada posterior. O ser
 
 ## API do renderer
 
-Os grupos expostos por `window.fluxoDre` são: `app`, `product`, `empresas`, `clientes`, `fornecedores`, `obras`, `frentes`, `etapas`, `locais`, `orcamentos`, `cronograma`, `rdos`, `rdoEquipe`, `rdoEquipamentos`, `rdoOcorrencias`, `medicoes`, `contas`, `categorias`, `cargos`, `funcionarios`, `folhas`, `lancamentosFolha`, `pagamentosFuncionario`, `beneficios`, `epis`, `funcionarioEpis`, `arquivos`, `fontes`, `pastas`, `documentos`, `folha`, `ponto`, `catalogo`, `compras`, `contratos`, `importacoes`, `relatorios` e `backup`.
+Os grupos expostos por `window.fluxoDre` são: `app`, `product`, `empresas`, `clientes`, `fornecedores`, `obras`, `frentes`, `etapas`, `locais`, `orcamentos`, `cronograma`, `rdos`, `rdoEquipe`, `rdoEquipamentos`, `rdoOcorrencias`, `medicoes`, `contas`, `categorias`, `cargos`, `funcionarios`, `folhas`, `lancamentosFolha`, `pagamentosFuncionario`, `beneficios`, `epis`, `funcionarioEpis`, `arquivos`, `fontes`, `pastas`, `documentos`, `explorador`, `scanner`, `folha`, `ponto`, `catalogo`, `compras`, `contratos`, `importacoes`, `relatorios` e `backup`.
 
 Ao adicionar ou mudar uma operação pública, mantenha sincronizados:
 
@@ -132,7 +135,6 @@ Ao adicionar ou mudar uma operação pública, mantenha sincronizados:
 - `compras.moveStock`: registra saida ou ajuste de estoque com bloqueio de saldo negativo.
 - `importadorUniversal`: reconhece financeiro, obras, orcamento, funcionarios, compras, contratos, aditivos, medicoes, ponto, documentos e estoque.
 
-
 ## Adendo 2026-09-02 — ponte online
 
 - `electron/services/online-service.cjs`: cliente HTTP do Desktop para o backend Obra na Mão.
@@ -144,3 +146,13 @@ Ao adicionar ou mudar uma operação pública, mantenha sincronizados:
 - Override de ambiente: `FLUXO_DRE_PLATFORM_URL`.
 - O renderer continua sem acesso direto a Node ou ao token do dispositivo.
 - Rotas suportadas incluem sessão, sync pull/push, publicação de resumo mobile, leitura/escrita financeira, publicação de obrigações, IA estruturada e resolução de conflitos.
+
+## Adendo 2026-09-09 — explorador de documentos reutilizável
+
+- `src/modules/file-explorer/`: componente `FileExplorer` reutilizável, grade, busca local, breadcrumb, voltar, atualizar e abertura no sistema operacional.
+- `electron/services/managed-directory-service.cjs`: serviço genérico de roots nomeados; o primeiro root autorizado é `documents`, resolvido dinamicamente por `DocumentRootService.getRoot()`.
+- `electron/main.cjs`: handlers `explorer:list` e `explorer:open`.
+- `electron/preload.cjs`: API `window.fluxoDre.explorador` sem exposição de caminhos absolutos ou Node.js.
+- `src/pages/DocumentsPage.tsx`: aba `Pastas` usa o novo módulo; aba `Registros` preserva a central anterior e suas operações existentes.
+- Entrega 1 permanece deliberadamente somente leitura: não há criar, mover, renomear, sobrescrever ou excluir pelo explorador.
+- Contrato detalhado e mapa das estruturas físicas: `docs/DOCUMENT_EXPLORER_MAP.md`.
